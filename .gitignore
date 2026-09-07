@@ -1,0 +1,20 @@
+# Data — raw archives and extracted source data are not version-controlled.
+# Re-fetch with: python src/fetch_data.py
+data/raw/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.ipynb_checkpoints/
+
+# Notebook outputs are stripped before commit
+# (see README for the nbstripout setup)
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
