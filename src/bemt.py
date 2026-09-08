@@ -161,6 +161,116 @@ def bisect(fn, lo, hi, tol=1e-10, max_iter=200):
     return 0.5 * (lo + hi)
 
 
+
+def solve_station(r, R, chord, theta_rad, omega, B, airfoil=placeholder_airfoil):
+    """Converge one radial station and return its thrust and torque per span.
+
+    Args:
+        (same as `residual`)
+
+    Returns:
+        dict with:
+            v_i      -- converged induced velocity, m/s
+            dT_dr    -- thrust per unit span at this station, N/m
+            dQ_dr    -- torque per unit span at this station, N*m/m
+            phi, alpha, cl, cd, Re   -- diagnostics, for when validation
+                                        disagrees and you need to see why
+
+    The tip station is special-cased. At r = R the Prandtl factor is exactly
+    zero for any inflow angle, so the momentum sink vanishes, the residual
+    never changes sign, and bisection has no root to find. Physically that IS
+    the answer -- the tip carries no load, because pressure equalizes around
+    it -- so the station returns zero thrust and torque rather than being
+    nudged past the singularity with a clamped F. Chord goes to nearly zero
+    there as well, so nothing real is being discarded.
+    """
+    if R - r < 1e-9:
+        return {"v_i": 0.0, "dT_dr": 0.0, "dQ_dr": 0.0,
+                "phi": 0.0, "alpha": 0.0, "cl": 0.0, "cd": 0.0, "Re": 0.0}
+
+    def f(v):
+        return residual(v, r, R, chord, theta_rad, omega, B, airfoil)
+
+    lo, hi = 1e-6, omega * r
+    try:
+        v_i = bisect(f, lo, hi)
+    except ValueError as exc:                     # not silently swallowed
+        raise ValueError(f"station r={r:.4f} m (r/R={r/R:.3f}): {exc}") from exc
+
+    U_T, U_P = omega * r, v_i
+    phi = math.atan2(U_P, U_T)
+    alpha = theta_rad - phi
+    U = math.hypot(U_T, U_P)
+    Re = RHO * U * chord / MU
+    cl, cd = airfoil(alpha, Re)
+
+    q = 0.5 * RHO * U**2 * chord                  # dynamic pressure * chord
+    # Same lift and drag, resolved onto perpendicular axes. Drag SUBTRACTS
+    # from thrust and ADDS to torque -- that asymmetry is the cost of spinning
+    # a propeller. Torque carries an extra r because it is a moment.
+    dT_dr = B * q * (cl * math.cos(phi) - cd * math.sin(phi))
+    dQ_dr = B * r * q * (cl * math.sin(phi) + cd * math.cos(phi))
+
+    return {"v_i": v_i, "dT_dr": dT_dr, "dQ_dr": dQ_dr,
+            "phi": phi, "alpha": alpha, "cl": cl, "cd": cd, "Re": Re}
+
+
+def solve_propeller(r_R, c_R, beta_deg, diameter_in, rpm, blade_count,
+                    airfoil=placeholder_airfoil, stations=False):
+    """Run every station and integrate to whole-propeller performance.
+
+    Args:
+        r_R: radial stations as fractions of tip radius, ascending.
+        c_R: chord at each station, normalized by tip radius R.
+        beta_deg: blade angle at each station, DEGREES.
+        diameter_in: propeller diameter, INCHES.
+        rpm: shaft speed.
+        blade_count: number of blades.
+        airfoil: callable (alpha_rad, re) -> (cl, cd).
+        stations: if True, include the per-station solutions in the result.
+
+    Returns:
+        dict with thrust_N, torque_Nm, shaft_power_W, CT, CP.
+
+    Stations begin at r/R = 0.15, so the hub region contributes nothing. Chord
+    is small there and it sits inside the spinner, but it is an assumption
+    worth stating rather than leaving implicit.
+    """
+    R = diameter_in * IN_M / 2.0
+    omega = 2.0 * math.pi * rpm / 60.0
+
+    rs, sols = [], []
+    for x, c, b in zip(r_R, c_R, beta_deg):
+        r = x * R
+        rs.append(r)
+        sols.append(solve_station(r, R, c * R, math.radians(b), omega,
+                                  blade_count, airfoil))
+
+    # Trapezoid rule over the stations. Written out rather than reaching for
+    # numpy so the integration is visible and version-independent.
+    T = Q = 0.0
+    for i in range(len(rs) - 1):
+        dr = rs[i + 1] - rs[i]
+        T += 0.5 * (sols[i]["dT_dr"] + sols[i + 1]["dT_dr"]) * dr
+        Q += 0.5 * (sols[i]["dQ_dr"] + sols[i + 1]["dQ_dr"]) * dr
+
+    P = Q * omega
+    n, D = rpm / 60.0, diameter_in * IN_M
+
+    # Inverts the formulas in physics.py, so solver output and measured data
+    # land in the same units and compare directly.
+    out = {
+        "thrust_N": T,
+        "torque_Nm": Q,
+        "shaft_power_W": P,
+        "CT": T / (RHO * n**2 * D**4),
+        "CP": P / (RHO * n**3 * D**5),
+    }
+    if stations:
+        out["stations"] = sols
+    return out
+
+
 # --- checks -----------------------------------------------------------------
 # One real station: APC 9x4.7 SF at r/R = 0.75, 6026 rpm -- the same propeller
 # and operating point physics.py is verified against.
@@ -178,7 +288,7 @@ def _res(v):
     return residual(v, _r, _R, _chord, _theta, _omega, _B)
 
 
-def main() -> None:
+def check_residual() -> int:
     checks = []
 
     # The bracket argument, verified rather than assumed.
@@ -208,14 +318,64 @@ def main() -> None:
     checks.append(("alpha is a sane few degrees (0-10)",
                    0 < math.degrees(alpha) < 10, f"{math.degrees(alpha):.2f} deg"))
 
-    ok = 0
     for name, passed, detail in checks:
         print(f"  {'PASS' if passed else 'FAIL'}  {name:<38} {detail}")
-        ok += passed
-    print(f"\n{ok} passed, {len(checks)-ok} failed")
-    if ok == len(checks):
-        print(f"\n  converged: v_i = {v:.3f} m/s, phi = {math.degrees(phi):.2f} deg, "
-              f"alpha = {math.degrees(alpha):.2f} deg")
+    print(f"  -> converged: v_i = {v:.3f} m/s, phi = {math.degrees(phi):.2f} deg, "
+          f"alpha = {math.degrees(alpha):.2f} deg")
+    return sum(1 for _, ok, _ in checks if not ok)
+
+
+def check_propeller() -> int:
+    """Run the whole APC 9x4.7 SF blade and compare against measurement."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import pandas as pd
+
+    df = pd.read_csv(Path(__file__).resolve().parent.parent
+                     / "data" / "processed" / "uiuc_hover.csv")
+    row = df[(df.prop_name == "apcsf_9x4.7") & (df.rpm == 6026.0)].iloc[0]
+
+    stations = [round(x, 2) for x in [0.15 + 0.05 * k for k in range(18)]]
+    r_R = stations
+    c_R = [row[f"c_R_r{int(round(x*100)):03d}"] for x in stations]
+    beta = [row[f"beta_r{int(round(x*100)):03d}"] for x in stations]
+
+    out = solve_propeller(r_R, c_R, beta, row.diameter_in, row.rpm, int(row.blade_count))
+
+    checks = []
+    checks.append(("CT positive", out["CT"] > 0, f"{out['CT']:.4f}"))
+    checks.append(("CP positive", out["CP"] > 0, f"{out['CP']:.4f}"))
+
+    # Internal consistency: CT must reproduce the thrust it was derived from.
+    n, D = row.rpm / 60.0, row.diameter_in * IN_M
+    t_from_ct = out["CT"] * RHO * n**2 * D**4
+    checks.append(("CT reproduces thrust", abs(t_from_ct - out["thrust_N"]) < 1e-9,
+                   f"{t_from_ct:.4f} vs {out['thrust_N']:.4f} N"))
+
+    # CT is a coefficient: it should be nearly RPM-independent. Any strong
+    # trend means rpm is leaking into the answer where it should cancel.
+    out_lo = solve_propeller(r_R, c_R, beta, row.diameter_in, row.rpm * 0.6, int(row.blade_count))
+    drift = abs(out_lo["CT"] - out["CT"]) / out["CT"]
+    checks.append(("CT ~ rpm-independent (<15% over 0.6x)", drift < 0.15, f"{drift*100:.1f}%"))
+
+    for name, passed, detail in checks:
+        print(f"  {'PASS' if passed else 'FAIL'}  {name:<38} {detail}")
+
+    print(f"\n  MEASURED : CT = {row.CT:.4f}  CP = {row.CP:.4f}  "
+          f"T = {row.thrust_N:.3f} N  P = {row.shaft_power_W:.2f} W")
+    print(f"  SOLVER   : CT = {out['CT']:.4f}  CP = {out['CP']:.4f}  "
+          f"T = {out['thrust_N']:.3f} N  P = {out['shaft_power_W']:.2f} W")
+    print(f"  error    : CT {(out['CT']/row.CT-1)*100:+.1f}%   CP {(out['CP']/row.CP-1)*100:+.1f}%")
+    return sum(1 for _, ok, _ in checks if not ok)
+
+
+def main() -> None:
+    print("--- residual (one station) ---")
+    bad = check_residual()
+    print("\n--- whole propeller ---")
+    bad += check_propeller()
+    print(f"\n{'all checks passed' if bad == 0 else str(bad) + ' check(s) failed'}")
 
 
 if __name__ == "__main__":
