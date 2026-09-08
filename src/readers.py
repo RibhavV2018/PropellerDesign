@@ -21,6 +21,7 @@ and belongs in the join, not hidden here.
     ./.venv/bin/python src/readers.py
 """
 
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -89,39 +90,67 @@ def find_geometry_files(root: Path = DATA_ROOT) -> dict:
     return out
 
 
-def find_static_files(root: Path = DATA_ROOT) -> dict:
-    """Map prop_name -> [Path, ...] for every static performance file.
+def parse_static_filename(path: Path):
+    """Split a static filename into (base propeller name, blade count).
 
-    A list, not a single path: propellers are often tested more than once
-    (different rigs, dates, or operators -- the kt/rd/os/jb tags in the
-    filename), so one propeller can have several static files with
-    overlapping RPM ranges. Deciding what to do with duplicate runs is a
-    join-time question.
+    Blade count is encoded as a _3b_ / _4b_ infix before "_static_":
+
+        da4022_5x3.75_static_0642rb.txt      -> ("da4022_5x3.75", 2)
+        da4022_5x3.75_3b_static_0690md.txt   -> ("da4022_5x3.75", 3)
+
+    Two-blade is the unmarked default -- 253 of 264 static files. The base
+    name matters because the multi-blade variants have NO geometry file of
+    their own: they reuse the base propeller's blade, changing only how many
+    of them are on the hub. Keying on the raw stem instead of the base name
+    orphans all 11 multi-blade files from their geometry.
     """
-    out = {}
+    stem = path.name.split("_static_")[0]
+    m = re.search(r"_(\d)b$", stem)
+    if m:
+        return stem[: m.start()], int(m.group(1))
+    return stem, 2
+
+
+def find_static_runs(root: Path = DATA_ROOT) -> list:
+    """Every static performance file, as a list of records.
+
+    Each record is a dict with:
+        prop_name    -- BASE propeller name, matching its geometry file
+        blade_count  -- 2, 3 or 4, from the filename infix
+        path         -- Path to the data file
+
+    A list rather than a dict because one propeller can contribute several
+    rows: different blade counts, and repeat test runs of the same
+    configuration (apcsp_9x6 and gwsdd_9x5 were each tested twice). Both are
+    legitimately separate operating data for the same blade, and both must
+    stay on the same side of any train/test split -- group on prop_name.
+    """
+    runs = []
     for p in sorted(root.glob("volume-*/data/*_static_*.txt")):
-        name = p.name.split("_static_")[0]
-        out.setdefault(name, []).append(p)
-    return out
+        name, blades = parse_static_filename(p)
+        runs.append({"prop_name": name, "blade_count": blades, "path": p})
+    return runs
 
 
 def main() -> None:
+    from collections import Counter
+
     geom = find_geometry_files()
-    static = find_static_files()
+    runs = find_static_runs()
 
     print(f"geometry files : {len(geom)} propellers")
-    print(f"static files   : {sum(len(v) for v in static.values())} files "
-          f"across {len(static)} propellers")
+    print(f"static runs    : {len(runs)} files")
+    print(f"  by blade count: {dict(sorted(Counter(r['blade_count'] for r in runs).items()))}")
 
-    both = sorted(set(geom) & set(static))
-    print(f"propellers with BOTH (usable): {len(both)}")
+    named = {r["prop_name"] for r in runs}
+    both = sorted(set(geom) & named)
+    print(f"propellers with BOTH geometry and static: {len(both)}")
+    print(f"static runs usable (base prop has geometry): "
+          f"{sum(1 for r in runs if r['prop_name'] in geom)}")
 
-    multi = {k: len(v) for k, v in static.items() if k in both and len(v) > 1}
-    print(f"usable propellers with >1 static run: {len(multi)}")
-    if multi:
-        top = sorted(multi.items(), key=lambda kv: -kv[1])[:5]
-        print(f"  most-retested: {top}")
-
+    static = {}
+    for r in runs:
+        static.setdefault(r["prop_name"], []).append(r["path"])
     ex = both[0]
     print(f"\n--- example: {ex} ---")
     print("geometry (first 4 stations):")

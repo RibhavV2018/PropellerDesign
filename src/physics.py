@@ -113,7 +113,7 @@ def main() -> None:
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from readers import find_static_files, read_static
+    from readers import find_static_runs, read_static
 
     checks = []
 
@@ -148,7 +148,8 @@ def main() -> None:
     checks.append(("not off by 0.0254^4 (in/m)", t > 0.01, f"{t:.4f} N"))
 
     # Efficiency must fall as rpm rises, across a real measured sweep.
-    df = read_static(find_static_files()["apcsf_9x4.7"][0])
+    run = next(r for r in find_static_runs() if r["prop_name"] == "apcsf_9x4.7")
+    df = read_static(run["path"])
     eff = [thrust_per_watt(r.CT, r.CP, r.rpm, 9.0) for r in df.itertuples()]
     falling = all(a > b for a, b in zip(eff, eff[1:]))
     checks.append(("T/P falls monotonically with rpm", falling,
