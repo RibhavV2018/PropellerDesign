@@ -24,3 +24,7 @@ env/
 .DS_Store
 .vscode/
 .idea/
+
+# Generated CAD output — reproduce with:
+#     python src/cad.py --thrust 500 --diameter 10 --rpm 6000
+output/
