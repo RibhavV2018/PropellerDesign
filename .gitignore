@@ -2,6 +2,12 @@
 # Re-fetch with: python src/fetch_data.py
 data/raw/
 
+# Synthetic dataset: 29 MB and regenerated whenever the solver or airfoil
+# model changes, so it is reproduced rather than versioned. The generator is
+# seeded (SEED = 0), so this is deterministic:
+#     python src/generate_synthetic.py
+data/processed/synthetic_hover.csv
+
 # Python
 __pycache__/
 *.py[cod]
