@@ -82,7 +82,15 @@ PITCH_RATIO = (0.25, 1.00)     # P/D; data 0.32-0.91
 SOLIDITY = (0.05, 0.22)        # data 0.065-0.186
 WASHOUT_DEG = (-4.0, 2.0)      # deviation from pure constant pitch
 BLADE_COUNTS = (2, 3, 4, 5, 6)  # SCOPE.md's auto-select candidate set
-SHAPE_SD = 2.5                 # chord-shape PCA sampling width
+# Chord-shape sampling width, as a MULTIPLE of the spread real propellers
+# actually show. Sampling wide seemed generous and was not: at the original
+# setting the synthetic coefficient spread was 2.5-3.1x the real one and 70%
+# of generated blades fell outside the real shape envelope. A model trained on
+# them learned a chord distribution no manufacturer builds, which fitted
+# synthetic data well (chord R2 0.739) and transferred badly to real
+# propellers (-3.511). 1.5 still extrapolates beyond observed practice without
+# spending most of the samples outside it.
+SHAPE_WIDEN = 1.5
 
 _ST = np.array(STATIONS)
 
@@ -95,14 +103,19 @@ def chord_shape_basis(data=DATA):
     cover 82% of the variation in that shape, three cover 90%.
 
     Returns:
-        (mean_shape, components) with components shaped (2, 18).
+        (mean_shape, components, coef_sd) -- components shaped (2, 18), and
+        the standard deviation real blades show along each component, which
+        is what the sampler scales by so synthetic shapes stay in the range
+        real propellers occupy.
     """
     df = pd.read_csv(data).drop_duplicates("prop_name")
     C = df[C_COLS].values
     shape = C / C.max(axis=1, keepdims=True)
     mean = shape.mean(axis=0)
     _, _, vt = np.linalg.svd(shape - mean, full_matrices=False)
-    return mean, vt[:2]
+    comps = vt[:2]
+    coef_sd = ((shape - mean) @ comps.T).std(axis=0)
+    return mean, comps, coef_sd
 
 
 def make_geometry(pitch_ratio, diameter_in, solidity, washout_deg,
@@ -180,7 +193,7 @@ def efficient_frontier(df, pct=FRONTIER_PCT):
 
 def main() -> None:
     rng = np.random.default_rng(SEED)
-    mean_shape, components = chord_shape_basis()
+    mean_shape, components, coef_sd = chord_shape_basis()
 
     rows, failures = [], 0
     for i in range(N_SAMPLES):
@@ -190,7 +203,7 @@ def main() -> None:
         solidity = rng.uniform(*SOLIDITY)
         washout = rng.uniform(*WASHOUT_DEG)
         B = int(rng.choice(BLADE_COUNTS))
-        coeffs = rng.normal(0.0, 1.0, size=2) * SHAPE_SD * 0.4
+        coeffs = rng.normal(0.0, 1.0, size=2) * coef_sd * SHAPE_WIDEN
 
         rpm = 60.0 * v_tip / (np.pi * D * IN_M)
         c_R, beta = make_geometry(pd_ratio, D, solidity, washout, coeffs, B,

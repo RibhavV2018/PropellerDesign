@@ -73,7 +73,7 @@ class XGBParam:
     def fit(self, X, y, params=None):
         if params is None:
             raise ValueError("XGBParam needs the generator parameters as targets")
-        self.mean_shape_, self.components_ = chord_shape_basis()
+        self.mean_shape_, self.components_, _ = chord_shape_basis()
         self.m_ = xgb.XGBRegressor(**XGB_KW).fit(np.asarray(X), np.asarray(params))
         return self
 
