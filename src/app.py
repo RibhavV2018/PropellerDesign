@@ -75,9 +75,19 @@ def warnings_for(diameter, result):
             "only for 6-11 inch diameters. Outside that the model extrapolates below "
             "its training Reynolds range and did markedly worse.")
     if not result["meets_thrust"]:
-        out.append(
-            "No blade count reached the requested thrust within 15%. This is the "
-            "closest candidate -- try a larger diameter or higher rpm.")
+        err = result["thrust_error_pct"]
+        if err < 0:
+            out.append(
+                f"No blade count reached the requested thrust -- the closest falls "
+                f"{abs(err):.0f}% short. Since the target rpm is a motor ceiling rather "
+                f"than a knob, this design would not meet the requirement. Try a "
+                f"larger diameter or higher rpm.")
+        else:
+            out.append(
+                f"The best available candidate overshoots by {err:.0f}%. It meets the "
+                f"thrust requirement but is oversized -- heavier and drawing more "
+                f"current than the mission needs. A smaller diameter or lower rpm "
+                f"would fit the requirement more closely.")
     return out
 
 

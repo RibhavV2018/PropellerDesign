@@ -20,12 +20,42 @@ optimistic estimate of itself.
 BLADE COUNT AUTO-SELECTION
 
 When blade_count is None, every candidate from 2 to 6 is designed and
-simulated, and the one with the best thrust per shaft watt that still meets
-the thrust requirement wins. SCOPE.md calls this a thin wrapper over model
-inference, and it is -- but note the thrust constraint is doing real work.
-Efficiency alone is maximized by a blade that produces almost no thrust, since
-T/P grows without bound as thrust goes to zero. Ranking on efficiency without
-a thrust floor selects exactly those.
+simulated, and the most efficient one that meets the thrust requirement wins.
+SCOPE.md calls this a thin wrapper over model inference, and it is -- but the
+thrust constraint is doing real work. Efficiency alone is maximized by a blade
+producing almost no thrust, since T/P grows without bound as thrust goes to
+zero. Ranking on efficiency without a thrust floor selects exactly those.
+
+WHY THE ACCEPTABLE BAND IS ASYMMETRIC
+
+The band was once +/-15%, which sounds even-handed and is not: measured over a
+sweep of realistic requirements it undershot the target 66% of the time, by up
+to 15%.
+
+Undershoot and overshoot are not symmetric failures here. SCOPE.md derives the
+target rpm from motor Kv times battery voltage -- a no-load CEILING, not a set
+point, and the loaded motor turns slower still. So rpm is not a knob the user
+can turn up to recover missing thrust. A design that falls short at that rpm
+cannot reach the target at all, which is a hard failure rather than a
+performance shortfall. Overshoot merely costs weight and current.
+
+So the default requires thrust at or above target, and caps overshoot at +20%
+because an over-thrusting propeller is heavier, higher-inertia, and draws more
+current than the mission needs. Measured cost of the change: about 3.8% median
+efficiency, and no qualifying candidate in roughly 22% of cases -- which falls
+back to the closest and says so.
+
+TWO HONEST CAVEATS
+
+The solver UNDER-predicts thrust: Phase 1b measured CT error at -12.6% median
+against wind tunnel data, so a real blade built to a design that simulates at
+exactly target would likely produce more. This default is therefore doubly
+conservative. That is a reason to expose the setting, not to rely on it, since
+the scatter around that bias is 17-19%.
+
+And the prediction carries roughly 5% model error on top of that. A 0%
+boundary is more precise than the number it constrains -- it is a bias in the
+right direction, not a guarantee.
 """
 
 import sys
@@ -41,7 +71,12 @@ from physics import GF_PER_N
 
 N_CHORD = len(C_COLS)
 CANDIDATE_BLADES = (2, 3, 4, 5, 6)
-THRUST_TOLERANCE = 0.15      # a candidate must land within 15% of the target
+
+# Acceptable thrust band, as ratios of the target. Asymmetric on purpose --
+# see the module docstring. MIN_THRUST_RATIO = 1.0 means "must meet the
+# requirement"; lower it if the target rpm genuinely has headroom.
+MIN_THRUST_RATIO = 1.00
+MAX_THRUST_RATIO = 1.20
 
 
 def features_for(thrust_N, diameter_in, rpm):
@@ -61,7 +96,8 @@ def features_for(thrust_N, diameter_in, rpm):
     return ct, np.log10(re_ref)
 
 
-def design(model, thrust_N, diameter_in, rpm, blade_count=None):
+def design(model, thrust_N, diameter_in, rpm, blade_count=None,
+           min_thrust_ratio=MIN_THRUST_RATIO, max_thrust_ratio=MAX_THRUST_RATIO):
     """Design a propeller for one requirement.
 
     Args:
@@ -70,6 +106,10 @@ def design(model, thrust_N, diameter_in, rpm, blade_count=None):
         diameter_in: propeller diameter, inches.
         rpm: target shaft speed.
         blade_count: fixed count, or None to auto-select from 2-6.
+        min_thrust_ratio: lowest acceptable thrust as a fraction of target.
+            1.0 refuses to undershoot. Lower it when the target rpm has real
+            headroom, or to trade thrust margin for efficiency.
+        max_thrust_ratio: highest acceptable thrust as a fraction of target.
 
     Returns:
         dict with c_R, beta_deg, blade_count, thrust_N, shaft_power_W,
@@ -107,18 +147,35 @@ def design(model, thrust_N, diameter_in, rpm, blade_count=None):
             "thrust_per_watt_gf_W": float(out["thrust_N"] * GF_PER_N / out["shaft_power_W"]),
             "CT": float(out["CT"]), "CP": float(out["CP"]),
             "thrust_error_pct": err * 100,
-            "meets_thrust": bool(abs(err) <= THRUST_TOLERANCE),
+            "meets_thrust": bool(min_thrust_ratio <= 1.0 + err <= max_thrust_ratio),
         })
 
     if not results:
         raise RuntimeError("no candidate blade could be solved")
 
-    # Prefer candidates that actually meet the requirement; only if none do,
-    # fall back to whichever comes closest, so the tool always answers and the
-    # caller can see it fell short via meets_thrust.
+    # Three tiers, in order.
+    #
+    #   1. Inside the acceptable band -> the most efficient one. This is
+    #      SCOPE.md's rule: maximize thrust per watt subject to the constraint.
+    #   2. Nothing in the band, but something exceeds the target -> the
+    #      SMALLEST such candidate. Overshooting past the cap costs weight and
+    #      current; undershooting can mean the aircraft never leaves the
+    #      ground, because the target rpm is a Kv-times-voltage ceiling rather
+    #      than a knob to turn up. Prefer the overweight blade.
+    #   3. Nothing reaches the target at all -> whatever lands closest, with
+    #      meets_thrust False so the caller knows it fell short.
+    #
+    # Tier 2 matters more than it looks: with only five discrete blade counts
+    # the achievable thrusts are quantized, so a candidate landing inside a
+    # narrow band is partly luck. Without it, a tighter overshoot cap
+    # paradoxically produces MORE undershoot, by rejecting the very candidates
+    # that cleared the target.
     viable = [r for r in results if r["meets_thrust"]]
+    over = [r for r in results if r["thrust_error_pct"] >= 0]
     if viable:
         best = max(viable, key=lambda r: r["thrust_per_watt_gf_W"])
+    elif over:
+        best = min(over, key=lambda r: r["thrust_error_pct"])
     else:
         best = min(results, key=lambda r: abs(r["thrust_error_pct"]))
 
@@ -180,8 +237,13 @@ def main() -> None:
     print(f"  thrust per watt     {r['thrust_per_watt_gf_W']:>8.2f} gf/W")
     print(f"  CT / CP             {r['CT']:>8.4f} / {r['CP']:.4f}")
     if not r["meets_thrust"]:
-        print("\n  WARNING: no candidate met the thrust target within 15%.")
-        print("           This is the closest. Try a larger diameter or higher rpm.")
+        if r["thrust_error_pct"] < 0:
+            print(f"\n  WARNING: falls {abs(r['thrust_error_pct']):.0f}% short of the target.")
+            print("           Target rpm is a motor ceiling, not a knob, so this would")
+            print("           not meet the requirement. Try a larger diameter or rpm.")
+        else:
+            print(f"\n  NOTE: overshoots by {r['thrust_error_pct']:.0f}%. Meets the requirement")
+            print("        but is oversized -- a smaller diameter or lower rpm fits closer.")
 
     if "candidates" in r:
         print("\n  blade-count candidates (* = chosen):")
