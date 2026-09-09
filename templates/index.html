@@ -65,6 +65,20 @@
           font-size:13px; color:var(--muted); }
   details summary { cursor:pointer; font-size:14px; color:var(--muted); }
   .scroll { overflow-x:auto; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .spinner { display:inline-block; width:15px; height:15px; vertical-align:-2px;
+    border:2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; }
+  button .spinner { border-color:rgba(255,255,255,.35); border-top-color:#fff; margin-right:7px; }
+  button.secondary .spinner { border-color:color-mix(in srgb, var(--accent) 30%, transparent);
+    border-top-color:var(--accent); }
+  .loading { display:flex; align-items:center; gap:10px; color:var(--muted);
+    padding:22px; border:1px dashed var(--line); border-radius:8px; }
+  /* Results are dimmed the moment an input changes, so stale numbers are never
+     mistaken for the current request. */
+  .stale { opacity:.4; transition:opacity .15s; }
+  .stalehint { background:var(--warn-bg); border:1px solid var(--warn-line);
+    border-radius:8px; padding:9px 12px; font-size:13px; margin-bottom:14px; }
 </style>
 </head>
 <body>
@@ -119,7 +133,12 @@ const $ = id => document.getElementById(id);
 const body = () => ({ thrust:+$('thrust').value, diameter:+$('diameter').value,
                       rpm:+$('rpm').value, blades:$('blades').value, bore:+$('bore').value });
 const n = (x,d=1) => x.toFixed(d);
-let lastOK = false;
+
+// The parameters that produced what is currently on screen. CAD generation uses
+// THESE, not the live form values -- otherwise editing an input and pressing
+// "Generate CAD" silently builds a different propeller from the one whose
+// numbers are displayed above it.
+let shown = null;
 
 async function post(url, payload) {
   const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'},
@@ -129,35 +148,66 @@ async function post(url, payload) {
   return j;
 }
 
-async function runDesign(e) {
-  if (e) e.preventDefault();
-  $('go').disabled = true; $('go').textContent = 'Designing…';
-  $('cadbtn').disabled = true;
-  try {
-    const d = await post('/api/design', body());
-    render(d);
-    lastOK = true; $('cadbtn').disabled = false;
-  } catch (err) {
-    $('out').innerHTML = `<div class="warn">${err.message}</div>`;
-    lastOK = false;
-  } finally { $('go').disabled = false; $('go').textContent = 'Design'; }
+function busy(btn, on, label) {
+  btn.disabled = on;
+  btn.innerHTML = on ? `<span class="spinner"></span>${label}` : label;
 }
 
-// Bound to the button's CLICK rather than the form's submit event. Submit is
-// the obvious choice and is also the fragile one: some embedded and sandboxed
-// browser contexts block form submission outright, and then nothing happens
-// with no error to explain why. The form listener is kept so Enter still works
-// where submission is allowed.
+async function runDesign(e) {
+  if (e) e.preventDefault();
+  const params = body();
+  busy($('go'), true, 'Designing…');
+  $('cadbtn').disabled = true;
+  $('out').innerHTML = '<div class="loading"><span class="spinner"></span>Solving blade element momentum…</div>';
+  try {
+    const d = await post('/api/design', params);
+    shown = params;
+    render(d);
+    $('cadbtn').disabled = false;
+  } catch (err) {
+    $('out').innerHTML = `<div class="warn">${err.message}</div>`;
+    shown = null;
+  } finally { busy($('go'), false, 'Design'); }
+}
+
+// Bound to the button's CLICK rather than the form's submit event. Submit is the
+// obvious choice and the fragile one: some embedded and sandboxed browser
+// contexts block form submission outright, and then nothing happens with no
+// error to explain why. The form listener is kept so Enter still works.
 $('go').addEventListener('click', runDesign);
 $('f').addEventListener('submit', runDesign);
 
+// Any edit invalidates what is on screen: dim it, block CAD generation, and say
+// why. Without this the stat cards can describe one propeller while the preview
+// below shows another.
+for (const id of ['thrust','diameter','rpm','blades','bore']) {
+  $(id).addEventListener('input', markStale);
+  $(id).addEventListener('change', markStale);
+}
+function markStale() {
+  if (!shown) return;
+  shown = null;
+  $('cadbtn').disabled = true;
+  const res = $('results');
+  if (res && !res.classList.contains('stale')) {
+    res.classList.add('stale');
+    res.insertAdjacentHTML('beforebegin',
+      '<div class="stalehint" id="stalehint">Inputs changed &mdash; press Design to update.</div>');
+  }
+}
+
 $('cadbtn').addEventListener('click', async () => {
-  if (!lastOK) return;
-  $('cadbtn').disabled = true; $('cadbtn').textContent = 'Building solid… (~3 s)';
+  if (!shown) return;
+  busy($('cadbtn'), true, 'Building solid…');
+  // One container, replaced each time rather than appended to, so only the
+  // current design is ever on screen.
+  let slot = $('cad');
+  if (!slot) { slot = document.createElement('div'); slot.id = 'cad'; $('results').appendChild(slot); }
+  slot.innerHTML = '<h2>Generated solid</h2><div class="loading"><span class="spinner"></span>'
+                 + 'Lofting sections and cutting the bore… (~3 s)</div>';
   try {
-    const c = await post('/api/cad', body());
-    const el = document.createElement('div');
-    el.innerHTML = `<h2>Generated solid</h2>
+    const c = await post('/api/cad', shown);
+    slot.innerHTML = `<h2>Generated solid</h2>
       <img src="${c.png}" alt="propeller views">
       <p class="muted" style="font-size:13px;margin:10px 0 12px">
         ${n(c.volume_cm3)} cm³ · ~${n(c.mass_pla_g,0)} g solid PLA ·
@@ -165,11 +215,9 @@ $('cadbtn').addEventListener('click', async () => {
         <span class="${c.watertight?'yes':'no'}">${c.watertight?'watertight':'NOT watertight'}</span>
       </p>
       <div class="row"><a href="${c.step}">Download STEP</a><a href="${c.stl}">Download STL</a></div>`;
-    $('out').appendChild(el);
-    el.scrollIntoView({behavior:'smooth', block:'nearest'});
   } catch (err) {
-    $('out').insertAdjacentHTML('beforeend', `<div class="warn">${err.message}</div>`);
-  } finally { $('cadbtn').disabled = false; $('cadbtn').textContent = 'Generate CAD & preview'; }
+    slot.innerHTML = `<div class="warn">${err.message}</div>`;
+  } finally { busy($('cadbtn'), false, 'Generate CAD & preview'); }
 });
 
 function render(d) {
@@ -184,7 +232,7 @@ function render(d) {
         <td class="${c.meets?'yes':'no'}">${c.meets?'yes':'no'}</td></tr>`).join('')}
     </table></div>` : '';
 
-  $('out').innerHTML = `${warn}
+  $('out').innerHTML = `${warn}<div id="results">
     <div class="stats">
       <div class="stat"><div class="k">Blades</div><div class="v">${d.blade_count}</div>
         <div class="s">${d.candidates.length?'auto-selected':'fixed'}</div></div>
@@ -201,7 +249,8 @@ function render(d) {
         <tr><th>r/R</th><th>c/R</th><th>Chord (in)</th><th>Twist (deg)</th></tr>
         ${d.geometry.map(g => `<tr><td>${g.r_R.toFixed(2)}</td><td>${g.c_R.toFixed(4)}</td>
           <td>${g.chord_in.toFixed(3)}</td><td>${g.twist_deg.toFixed(2)}</td></tr>`).join('')}
-      </table></div></details>`;
+      </table></div></details>
+  </div>`;
 }
 </script>
 </body>
