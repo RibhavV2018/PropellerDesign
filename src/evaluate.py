@@ -220,7 +220,7 @@ def evaluate(models, subsample=None, seed=0) -> pd.DataFrame:
     trained on BEMT output and graded against BEMT output would only prove it
     can imitate the solver.
     """
-    Xs, ys, _ = load_synthetic()
+    Xs, ys, ps = load_synthetic()
     Xr, yr, groups = load_real()
     meta = add_features(pd.read_csv(REAL_CSV))
 
@@ -231,7 +231,10 @@ def evaluate(models, subsample=None, seed=0) -> pd.DataFrame:
 
     rows = []
     for name, model in models.items():
-        model.fit(Xs.values, ys.values)
+        if type(model).__name__ == "XGBParam":
+            model.fit(Xs.values, ys.values, params=ps.values)
+        else:
+            model.fit(Xs.values, ys.values)
         pred = model.predict(Xr.values)
         rec = {"model": name}
         rec.update(geometric_metrics(yr.values, pred))
@@ -243,11 +246,14 @@ def evaluate(models, subsample=None, seed=0) -> pd.DataFrame:
 
 def main() -> None:
     from sklearn.linear_model import LinearRegression
+    from models import XGBParam, XGBRaw
 
     models = {
         "mean_blade": MeanBlade(),
         "classical": ClassicalDesign(),
         "linear": LinearRegression(),
+        "xgb_raw": XGBRaw(),
+        "xgb_param": XGBParam(),
     }
     print(f"evaluating {len(models)} baselines on real propellers...")
     res = evaluate(models)
