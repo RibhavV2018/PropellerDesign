@@ -85,7 +85,12 @@ def design(model, thrust_N, diameter_in, rpm, blade_count=None):
     results = []
     for B in counts:
         pred = model.predict(np.array([[ct_target, float(B), log_re]]))[0]
-        c_R, beta = list(pred[:N_CHORD]), list(pred[N_CHORD:])
+        # Cast to native Python types here rather than at every call site.
+        # numpy scalars leak out otherwise: np.bool_ reports its type name as
+        # "bool" but json.dumps rejects it, and np.float64 the same -- which
+        # surfaces as an opaque 500 in any caller that serializes the result.
+        c_R = [float(v) for v in pred[:N_CHORD]]
+        beta = [float(v) for v in pred[N_CHORD:]]
         try:
             out = solve_propeller(STATIONS, c_R, beta, diameter_in, rpm, B,
                                   airfoil=low_re_airfoil)
@@ -94,13 +99,15 @@ def design(model, thrust_N, diameter_in, rpm, blade_count=None):
         if out["shaft_power_W"] <= 0:
             continue
 
+        err = float(out["thrust_N"] / thrust_N - 1)
         results.append({
-            "c_R": c_R, "beta_deg": beta, "blade_count": B,
-            "thrust_N": out["thrust_N"], "shaft_power_W": out["shaft_power_W"],
-            "thrust_per_watt_gf_W": out["thrust_N"] * GF_PER_N / out["shaft_power_W"],
-            "CT": out["CT"], "CP": out["CP"],
-            "thrust_error_pct": (out["thrust_N"] / thrust_N - 1) * 100,
-            "meets_thrust": abs(out["thrust_N"] / thrust_N - 1) <= THRUST_TOLERANCE,
+            "c_R": c_R, "beta_deg": beta, "blade_count": int(B),
+            "thrust_N": float(out["thrust_N"]),
+            "shaft_power_W": float(out["shaft_power_W"]),
+            "thrust_per_watt_gf_W": float(out["thrust_N"] * GF_PER_N / out["shaft_power_W"]),
+            "CT": float(out["CT"]), "CP": float(out["CP"]),
+            "thrust_error_pct": err * 100,
+            "meets_thrust": bool(abs(err) <= THRUST_TOLERANCE),
         })
 
     if not results:

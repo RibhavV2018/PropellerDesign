@@ -11,5 +11,8 @@ matplotlib>=3.7
 # hardcoded Homebrew path. After installing, run once:
 #     python src/patch_xgboost_openmp.py
 
-# Phase 4 — CAD (uncomment when you get there)
-# cadquery>=2.4
+# Phase 4 — CAD
+cadquery>=2.4
+
+# Phase 6 — web frontend
+flask>=3.0

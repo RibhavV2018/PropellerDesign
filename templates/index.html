@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hover Propeller Designer</title>
+<style>
+  :root {
+    --bg:#f7f7f5; --panel:#fff; --ink:#1c1c1a; --muted:#6b6b66;
+    --line:#e2e2dd; --accent:#2f5d8a; --warn-bg:#fdf6e3; --warn-line:#e0c974;
+    --good:#2c7a4b; --bad:#a8412f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#16181a; --panel:#1e2124; --ink:#e8e8e4; --muted:#9a9a94;
+      --line:#2e3236; --accent:#7aa6d6; --warn-bg:#2b2718; --warn-line:#6b5c2a;
+      --good:#6cc08a; --bad:#e08a76;
+    }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+  .wrap { max-width:1080px; margin:0 auto; padding:32px 20px 64px; }
+  header h1 { margin:0 0 4px; font-size:26px; letter-spacing:-0.02em; }
+  header p { margin:0 0 28px; color:var(--muted); max-width:64ch; }
+  .grid { display:grid; grid-template-columns:300px 1fr; gap:24px; align-items:start; }
+  @media (max-width:860px){ .grid{ grid-template-columns:1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line);
+           border-radius:10px; padding:20px; }
+  label { display:block; font-size:13px; color:var(--muted); margin:14px 0 5px; }
+  label:first-child { margin-top:0; }
+  input,select { width:100%; padding:9px 10px; font-size:15px; font-family:inherit;
+    background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:6px; }
+  button { width:100%; margin-top:20px; padding:11px; font-size:15px; font-weight:600;
+    font-family:inherit; background:var(--accent); color:#fff; border:0;
+    border-radius:6px; cursor:pointer; }
+  button:disabled { opacity:.55; cursor:default; }
+  button.secondary { background:transparent; color:var(--accent);
+    border:1px solid var(--accent); margin-top:10px; }
+  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:18px; }
+  @media (max-width:640px){ .stats{ grid-template-columns:repeat(2,1fr);} }
+  .stat { background:var(--panel); border:1px solid var(--line);
+          border-radius:8px; padding:12px 14px; }
+  .stat .k { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+  .stat .v { font-size:22px; font-weight:600; margin-top:3px;
+             font-variant-numeric:tabular-nums; }
+  .stat .s { font-size:12px; color:var(--muted); }
+  table { width:100%; border-collapse:collapse; font-size:14px;
+          font-variant-numeric:tabular-nums; }
+  th,td { text-align:right; padding:6px 8px; border-bottom:1px solid var(--line); }
+  th:first-child,td:first-child { text-align:left; }
+  th { font-size:12px; color:var(--muted); font-weight:600; }
+  tr.chosen td { background:color-mix(in srgb, var(--accent) 12%, transparent); font-weight:600; }
+  .warn { background:var(--warn-bg); border:1px solid var(--warn-line);
+          border-radius:8px; padding:11px 13px; font-size:14px; margin-bottom:14px; }
+  .muted { color:var(--muted); }
+  .yes { color:var(--good); } .no { color:var(--bad); }
+  h2 { font-size:15px; margin:26px 0 10px; letter-spacing:-0.01em; }
+  h2:first-child { margin-top:0; }
+  img { width:100%; border:1px solid var(--line); border-radius:8px; background:#fff; }
+  .row { display:flex; gap:10px; }
+  .row a { flex:1; text-align:center; text-decoration:none; padding:9px;
+    border:1px solid var(--accent); color:var(--accent); border-radius:6px; font-size:14px; }
+  .foot { margin-top:32px; padding-top:16px; border-top:1px solid var(--line);
+          font-size:13px; color:var(--muted); }
+  details summary { cursor:pointer; font-size:14px; color:var(--muted); }
+  .scroll { overflow-x:auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Hover Propeller Designer</h1>
+    <p>Enter a thrust requirement and get a blade. Geometry comes from a model trained on
+       physics-generated propellers; the performance shown is <strong>simulated</strong> by
+       a blade-element momentum solver on the predicted blade, not measured.</p>
+  </header>
+
+  <div class="grid">
+    <form class="panel" id="f">
+      <label>Target thrust (grams-force)</label>
+      <input type="number" id="thrust" value="500" min="1" max="50000" step="10" required>
+
+      <label>Diameter (inches)</label>
+      <input type="number" id="diameter" value="10" min="1" max="40" step="0.5" required>
+
+      <label>Target RPM</label>
+      <input type="number" id="rpm" value="6000" min="100" max="60000" step="100" required>
+
+      <label>Blade count</label>
+      <select id="blades">
+        <option value="">Auto-select (2&ndash;6)</option>
+        {% for b in candidates %}<option value="{{b}}">{{b}} blades</option>{% endfor %}
+      </select>
+
+      <label>Motor shaft bore (mm)</label>
+      <select id="bore">
+        <option value="5">5 mm</option>
+        <option value="6" selected>6 mm</option>
+        <option value="8">8 mm</option>
+      </select>
+
+      <button type="button" id="go">Design</button>
+      <button type="button" class="secondary" id="cadbtn" disabled>Generate CAD &amp; preview</button>
+    </form>
+
+    <div id="out"><p class="muted">Enter a requirement and press Design.</p></div>
+  </div>
+
+  <div class="foot">
+    Validated within ~15% of the best real propeller for 6&ndash;11&Prime; diameters
+    (Phase&nbsp;3, 15 held-out cases). Power is mechanical shaft power &mdash; motor and
+    ESC losses are not modelled.
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const body = () => ({ thrust:+$('thrust').value, diameter:+$('diameter').value,
+                      rpm:+$('rpm').value, blades:$('blades').value, bore:+$('bore').value });
+const n = (x,d=1) => x.toFixed(d);
+let lastOK = false;
+
+async function post(url, payload) {
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'},
+                             body:JSON.stringify(payload)});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || 'request failed');
+  return j;
+}
+
+async function runDesign(e) {
+  if (e) e.preventDefault();
+  $('go').disabled = true; $('go').textContent = 'Designing…';
+  $('cadbtn').disabled = true;
+  try {
+    const d = await post('/api/design', body());
+    render(d);
+    lastOK = true; $('cadbtn').disabled = false;
+  } catch (err) {
+    $('out').innerHTML = `<div class="warn">${err.message}</div>`;
+    lastOK = false;
+  } finally { $('go').disabled = false; $('go').textContent = 'Design'; }
+}
+
+// Bound to the button's CLICK rather than the form's submit event. Submit is
+// the obvious choice and is also the fragile one: some embedded and sandboxed
+// browser contexts block form submission outright, and then nothing happens
+// with no error to explain why. The form listener is kept so Enter still works
+// where submission is allowed.
+$('go').addEventListener('click', runDesign);
+$('f').addEventListener('submit', runDesign);
+
+$('cadbtn').addEventListener('click', async () => {
+  if (!lastOK) return;
+  $('cadbtn').disabled = true; $('cadbtn').textContent = 'Building solid… (~3 s)';
+  try {
+    const c = await post('/api/cad', body());
+    const el = document.createElement('div');
+    el.innerHTML = `<h2>Generated solid</h2>
+      <img src="${c.png}" alt="propeller views">
+      <p class="muted" style="font-size:13px;margin:10px 0 12px">
+        ${n(c.volume_cm3)} cm³ · ~${n(c.mass_pla_g,0)} g solid PLA ·
+        ${c.triangles.toLocaleString()} triangles ·
+        <span class="${c.watertight?'yes':'no'}">${c.watertight?'watertight':'NOT watertight'}</span>
+      </p>
+      <div class="row"><a href="${c.step}">Download STEP</a><a href="${c.stl}">Download STL</a></div>`;
+    $('out').appendChild(el);
+    el.scrollIntoView({behavior:'smooth', block:'nearest'});
+  } catch (err) {
+    $('out').insertAdjacentHTML('beforeend', `<div class="warn">${err.message}</div>`);
+  } finally { $('cadbtn').disabled = false; $('cadbtn').textContent = 'Generate CAD & preview'; }
+});
+
+function render(d) {
+  const warn = d.warnings.map(w => `<div class="warn">${w}</div>`).join('');
+  const cand = d.candidates.length ? `
+    <h2>Blade-count candidates</h2>
+    <div class="scroll"><table>
+      <tr><th>Blades</th><th>Thrust (gf)</th><th>Error</th><th>Watts</th><th>gf/W</th><th>Meets target</th></tr>
+      ${d.candidates.map(c => `<tr class="${c.blades===d.blade_count?'chosen':''}">
+        <td>${c.blades}</td><td>${n(c.thrust_gf)}</td><td>${c.error_pct>=0?'+':''}${n(c.error_pct)}%</td>
+        <td>${n(c.watts)}</td><td>${n(c.gf_per_W,2)}</td>
+        <td class="${c.meets?'yes':'no'}">${c.meets?'yes':'no'}</td></tr>`).join('')}
+    </table></div>` : '';
+
+  $('out').innerHTML = `${warn}
+    <div class="stats">
+      <div class="stat"><div class="k">Blades</div><div class="v">${d.blade_count}</div>
+        <div class="s">${d.candidates.length?'auto-selected':'fixed'}</div></div>
+      <div class="stat"><div class="k">Thrust</div><div class="v">${n(d.thrust_gf,0)}</div>
+        <div class="s">gf (${d.thrust_error_pct>=0?'+':''}${n(d.thrust_error_pct)}% vs request)</div></div>
+      <div class="stat"><div class="k">Shaft power</div><div class="v">${n(d.shaft_power_W)}</div>
+        <div class="s">watts</div></div>
+      <div class="stat"><div class="k">Efficiency</div><div class="v">${n(d.gf_per_W,2)}</div>
+        <div class="s">gf per watt</div></div>
+    </div>
+    ${cand}
+    <details style="margin-top:22px"><summary>Blade geometry — 18 stations</summary>
+      <div class="scroll"><table style="margin-top:10px">
+        <tr><th>r/R</th><th>c/R</th><th>Chord (in)</th><th>Twist (deg)</th></tr>
+        ${d.geometry.map(g => `<tr><td>${g.r_R.toFixed(2)}</td><td>${g.c_R.toFixed(4)}</td>
+          <td>${g.chord_in.toFixed(3)}</td><td>${g.twist_deg.toFixed(2)}</td></tr>`).join('')}
+      </table></div></details>`;
+}
+</script>
+</body>
+</html>
