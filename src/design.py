@@ -118,3 +118,79 @@ def design(model, thrust_N, diameter_in, rpm, blade_count=None):
     if blade_count is None:
         best = dict(best, candidates=results)
     return best
+
+
+# --- command line -----------------------------------------------------------
+
+def _fit(model_name):
+    from dataset import load_synthetic
+    Xs, ys, ps = load_synthetic()
+    if model_name == "linear":
+        from sklearn.linear_model import LinearRegression
+        return LinearRegression().fit(Xs.values, ys.values)
+    if model_name == "xgb":
+        from models import XGBRaw
+        return XGBRaw().fit(Xs.values, ys.values)
+    raise SystemExit(f"unknown model: {model_name}")
+
+
+def main() -> None:
+    import argparse
+
+    ap = argparse.ArgumentParser(
+        description="Design a hover propeller for a thrust requirement.",
+        epilog="example: python src/design.py --thrust 500 --diameter 10 --rpm 6000",
+    )
+    ap.add_argument("--thrust", type=float, required=True,
+                    help="target thrust in grams-force (use --newtons for N)")
+    ap.add_argument("--newtons", action="store_true", help="treat --thrust as newtons")
+    ap.add_argument("--diameter", type=float, required=True, help="diameter, inches")
+    ap.add_argument("--rpm", type=float, required=True, help="target shaft speed")
+    ap.add_argument("--blades", type=int, default=None,
+                    help="fix the blade count; omit to auto-select from 2-6")
+    ap.add_argument("--model", default="linear", choices=["linear", "xgb"],
+                    help="linear is better calibrated on real propellers (default)")
+    a = ap.parse_args()
+
+    thrust_N = a.thrust if a.newtons else a.thrust * 9.80665 / 1000.0
+
+    if not 2 <= a.diameter <= 30:
+        print(f"note: diameter {a.diameter} in is outside SCOPE.md's 2-30 inch class")
+    elif a.diameter < 6 or a.diameter > 11:
+        print("note: Phase 3 validated efficiency within ~15% of the best real")
+        print("      propeller only for 6-11 inch diameters. Outside that the model")
+        print("      extrapolates below its training Reynolds range and did markedly")
+        print("      worse -- treat the numbers below with caution.")
+
+    model = _fit(a.model)
+    r = design(model, thrust_N, a.diameter, a.rpm, a.blades)
+
+    print(f"\nrequest : {thrust_N * GF_PER_N:.0f} gf at {a.diameter} in, {a.rpm:.0f} rpm")
+    print(f"design  : {r['blade_count']} blades")
+    print(f"\n  simulated thrust    {r['thrust_N'] * GF_PER_N:>8.1f} gf   "
+          f"({r['thrust_error_pct']:+.1f}% vs request)")
+    print(f"  shaft power         {r['shaft_power_W']:>8.1f} W")
+    print(f"  thrust per watt     {r['thrust_per_watt_gf_W']:>8.2f} gf/W")
+    print(f"  CT / CP             {r['CT']:>8.4f} / {r['CP']:.4f}")
+    if not r["meets_thrust"]:
+        print("\n  WARNING: no candidate met the thrust target within 15%.")
+        print("           This is the closest. Try a larger diameter or higher rpm.")
+
+    if "candidates" in r:
+        print("\n  blade-count candidates (* = chosen):")
+        print(f"    {'':2}{'B':>3}{'thrust gf':>11}{'err %':>8}{'watts':>9}{'gf/W':>8}")
+        for c in r["candidates"]:
+            mark = "*" if c["blade_count"] == r["blade_count"] else " "
+            print(f"    {mark:<2}{c['blade_count']:>3}{c['thrust_N'] * GF_PER_N:>11.1f}"
+                  f"{c['thrust_error_pct']:>8.1f}{c['shaft_power_W']:>9.1f}"
+                  f"{c['thrust_per_watt_gf_W']:>8.2f}")
+
+    print(f"\n  geometry ({len(STATIONS)} stations)")
+    print(f"    {'r/R':>6}{'c/R':>8}{'chord in':>10}{'twist deg':>11}")
+    R_in = a.diameter / 2.0
+    for x, c, b in zip(STATIONS, r["c_R"], r["beta_deg"]):
+        print(f"    {x:>6.2f}{c:>8.4f}{c * R_in:>10.3f}{b:>11.2f}")
+
+
+if __name__ == "__main__":
+    main()
