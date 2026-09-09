@@ -188,6 +188,78 @@ def export(prop, stem, out_dir=None):
     return paths
 
 
+def render(stl_path, png_path=None):
+    """Render an exported STL to a PNG: top, side and iso views.
+
+    Useful because the two things most likely to be wrong are visible at a
+    glance and invisible in the numbers -- twist running the wrong way, and a
+    blade that failed to fuse with the hub.
+    """
+    import struct
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+    stl_path = Path(stl_path)
+    png_path = Path(png_path or stl_path.with_suffix(".png"))
+
+    data = stl_path.read_bytes()
+    n = struct.unpack("<I", data[80:84])[0]
+    tris = np.zeros((n, 3, 3))
+    off = 84
+    for i in range(n):
+        v = struct.unpack("<12fH", data[off:off + 50])
+        tris[i] = np.array(v[3:12]).reshape(3, 3)
+        off += 50
+
+    lim = float(np.abs(tris).max()) * 1.05
+    fig = plt.figure(figsize=(15, 5))
+    for k, (elev, azim, title) in enumerate([
+            (90, -90, "top (rotor disc)"),
+            (0, -90, "side (twist visible)"),
+            (35, -60, "iso")]):
+        ax = fig.add_subplot(1, 3, k + 1, projection="3d")
+        ax.add_collection3d(Poly3DCollection(
+            tris, facecolor="#7aa6d6", edgecolor="#2b4a6f", linewidth=0.05))
+        ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim); ax.set_zlim(-lim, lim)
+        ax.view_init(elev=elev, azim=azim)
+        ax.set_axis_off()
+        ax.set_title(title)
+    plt.tight_layout()
+    plt.savefig(png_path, dpi=110, facecolor="white")
+    plt.close(fig)
+    return png_path
+
+
+def check_manifold(stl_path):
+    """Is the mesh watertight? Every edge must be shared by exactly two faces.
+
+    A slicer will either refuse a non-manifold mesh or silently produce a part
+    with holes in it, so this is worth checking before printing rather than
+    after.
+    """
+    import struct
+    from collections import Counter
+
+    data = Path(stl_path).read_bytes()
+    n = struct.unpack("<I", data[80:84])[0]
+    edges = Counter()
+    off = 84
+    for _ in range(n):
+        v = struct.unpack("<12fH", data[off:off + 50])
+        pts = [tuple(round(c, 4) for c in v[3:6]),
+               tuple(round(c, 4) for c in v[6:9]),
+               tuple(round(c, 4) for c in v[9:12])]
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            edges[frozenset((pts[a], pts[b]))] += 1
+        off += 50
+    bad = sum(1 for c in edges.values() if c != 2)
+    return {"triangles": n, "edges": len(edges), "bad_edges": bad,
+            "watertight": bad == 0}
+
+
 # --- command line -----------------------------------------------------------
 
 def main() -> None:
@@ -211,6 +283,10 @@ def main() -> None:
     ap.add_argument("--hub-dia", type=float, default=None, help="hub outer diameter, mm")
     ap.add_argument("--hub-thick", type=float, default=None, help="hub height, mm")
     ap.add_argument("--name", default=None, help="output filename stem")
+    ap.add_argument("--render", action="store_true",
+                    help="also write a PNG with top, side and iso views")
+    ap.add_argument("--check", action="store_true",
+                    help="verify the STL mesh is watertight before printing")
     a = ap.parse_args()
 
     thrust_N = a.thrust * 9.80665 / 1000.0
@@ -234,8 +310,18 @@ def main() -> None:
     print(f"          ~{solid.Volume() / 1000 * 1.24:.0f} g in PLA if printed solid")
 
     stem = a.name or f"prop_{a.diameter:g}in_{a.thrust:g}gf_{r['blade_count']}b"
-    for p in export(prop, stem):
+    paths = export(prop, stem)
+    for p in paths:
         print(f"wrote   : {p}  ({p.stat().st_size / 1000:.0f} kB)")
+
+    stl = next(p for p in paths if p.suffix == ".stl")
+    if a.check:
+        c = check_manifold(stl)
+        print(f"mesh    : {c['triangles']} triangles, {c['edges']} edges, "
+              f"watertight={c['watertight']}"
+              + (f"  ({c['bad_edges']} bad edges!)" if c["bad_edges"] else ""))
+    if a.render:
+        print(f"wrote   : {render(stl)}")
 
 
 if __name__ == "__main__":
