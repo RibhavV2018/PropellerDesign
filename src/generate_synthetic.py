@@ -64,9 +64,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from bemt import IN_M, MU, RHO, low_re_airfoil, solve_propeller
 from validate_bemt import B_COLS, C_COLS, DATA, STATIONS
 
-OUT = Path(__file__).resolve().parent.parent / "data" / "processed" / "synthetic_hover.csv"
+PROC = Path(__file__).resolve().parent.parent / "data" / "processed"
+OUT = PROC / "synthetic_hover.csv"          # every sample
+OUT_FRONTIER = PROC / "synthetic_frontier.csv"   # the efficient subset, for training
 
-N_SAMPLES = 30_000
+FRONTIER_PCT = 0.15   # keep the top this fraction of each bin
+
+N_SAMPLES = 200_000
 SEED = 0
 
 # Ranges are modestly wider than the measured data, so the model interpolates
@@ -125,6 +129,55 @@ def make_geometry(pitch_ratio, diameter_in, solidity, washout_deg,
     return c_R, beta
 
 
+
+def efficient_frontier(df, pct=FRONTIER_PCT):
+    """Keep the most efficient blades within each requirement bin.
+
+    WHY FILTER AT ALL
+
+    Many different blades produce the same CT, and they are not equally good.
+    All satisfy the user's stated requirement; they differ in what that thrust
+    costs. A regressor trained on all of them minimizes squared error and so
+    predicts the CONDITIONAL MEAN geometry, when what an inverse design tool
+    owes the user is the conditional OPTIMUM.
+
+    HOW BIG IS THE EFFECT, HONESTLY
+
+    Measured on bins that control for Reynolds number, the best blade beats
+    the median by 1.15x in CT/CP, and filtering to the top 15% lifts median
+    CT/CP from 1.93 to 2.27 -- about 18%. Real, worth having, not dramatic.
+
+    An earlier estimate of 3.3x was wrong. It binned on (CT, blade count,
+    diameter class) and ranked on thrust per watt, which leaves the 1/(n*D)
+    factor inside the bin: the "best" blades were simply the largest and
+    slowest, not the aerodynamically better ones. Ranking a dimensionless
+    quantity on Reynolds-controlled bins removes that confound. The lesson
+    generalizes -- a spread measured on the wrong metric can be almost
+    entirely an artifact of what the bin failed to hold constant.
+
+    WHY CT/CP, NOT THRUST PER WATT
+
+        T/P = (CT * rho * n^2 * D^4) / (CP * rho * n^3 * D^5) = (CT/CP) / (n*D)
+
+    Thrust per watt carries a 1/(n*D) factor, so ranking on it inside a loose
+    bin just selects the largest, slowest propellers -- a trivial result that
+    says nothing about blade quality. CT/CP is dimensionless and isolates the
+    aerodynamics. At fixed CT it is equivalent to minimizing CP, which is
+    exactly what the user wants: the same thrust for less power.
+
+    Bins control for Reynolds number as well, since achievable CT/CP falls at
+    low Re; without that the frontier would be all large high-Re blades.
+    """
+    d = df[df.plausible].copy()
+    d["ct_cp"] = d.CT / d.CP
+    d["_ct"] = pd.cut(d.CT, 20)
+    d["_re"] = pd.qcut(d.Re_75, 4, duplicates="drop")
+
+    keep = (d.groupby(["_ct", "blade_count", "_re"], observed=True, group_keys=False)
+              .apply(lambda g: g.nlargest(max(1, int(round(len(g) * pct))), "ct_cp")))
+    return keep.drop(columns=["_ct", "_re"])
+
+
 def main() -> None:
     rng = np.random.default_rng(SEED)
     mean_shape, components = chord_shape_basis()
@@ -156,6 +209,8 @@ def main() -> None:
             "pitch_ratio": pd_ratio, "solidity": solidity,
             "washout_deg": washout, "shape_c1": coeffs[0], "shape_c2": coeffs[1],
             "tip_speed_ms": v_tip, "rpm": rpm,
+            "Re_75": RHO * (2 * np.pi * (rpm / 60.0) * 0.75 * (D * IN_M / 2))
+                     * (c_R[12] * D * IN_M / 2) / MU,
             "CT": out["CT"], "CP": out["CP"],
             "thrust_N": out["thrust_N"], "shaft_power_W": out["shaft_power_W"],
             "thrust_per_watt_N_W": out["thrust_N"] / out["shaft_power_W"]
@@ -193,6 +248,18 @@ def main() -> None:
     for c in ["diameter_in", "rpm", "thrust_N", "shaft_power_W", "CT", "CP"]:
         print(f"  {c:<18}{p[c].min():>11.3f} - {p[c].max():>11.1f}   median {p[c].median():>9.3f}")
     print(f"\nwrote {OUT}  ({OUT.stat().st_size/1e6:.1f} MB)")
+
+    front = efficient_frontier(df)
+    front.to_csv(OUT_FRONTIER, index=False)
+    print(f"\n--- efficient frontier (top {FRONTIER_PCT:.0%} of each bin) ---")
+    print(f"  {len(front):,} blades   blade counts "
+          f"{front.blade_count.value_counts().sort_index().to_dict()}")
+    print(f"  CT/CP  frontier median {(front.CT/front.CP).median():.2f}   "
+          f"all-samples median {(p.CT/p.CP).median():.2f}")
+    fg = front.thrust_per_watt_N_W * 1000/9.80665
+    ag = p.thrust_per_watt_N_W * 1000/9.80665
+    print(f"  gf/W   frontier median {fg.median():.1f}   all-samples median {ag.median():.1f}")
+    print(f"  wrote {OUT_FRONTIER}  ({OUT_FRONTIER.stat().st_size/1e6:.1f} MB)")
 
 
 if __name__ == "__main__":
