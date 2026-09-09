@@ -3,10 +3,13 @@ pandas>=2.0
 numpy>=1.24
 requests>=2.31
 
-# Phase 2 — modeling (uncomment when you get there)
-# scikit-learn>=1.3
-# xgboost>=2.0
-# matplotlib>=3.7
+# Phase 2 — modeling
+scikit-learn>=1.3
+xgboost>=2.0
+matplotlib>=3.7
+# macOS without Homebrew: xgboost's wheel wants an OpenMP runtime at a
+# hardcoded Homebrew path. After installing, run once:
+#     python src/patch_xgboost_openmp.py
 
 # Phase 4 — CAD (uncomment when you get there)
 # cadquery>=2.4
