@@ -90,36 +90,53 @@ def _re_factor(re):
     return min(1.0, max(0.0, (math.log10(max(re, 1e3)) - 4.0) / 1.3))
 
 
-def low_re_airfoil(alpha_rad, re):
-    """Lift and drag for a generic cambered section at low Reynolds number.
+def make_airfoil(alpha0_deg=-3.0, cd0_coeff=6.2, k_cl2=K_CL2,
+                 cd_stall=CD_STALL, sharpness=STALL_SHARPNESS):
+    """Build an airfoil model with the given constants.
 
-    Deliberately generic. The UIUC database never names the blade section --
-    the word "airfoil" does not appear in it -- so every propeller here gets
-    the same assumed section. That assumption, not this model's fidelity, is
-    what sets the floor on validation accuracy.
+    A factory rather than module-level globals so calibration can vary the
+    constants without mutating shared state -- which would make results depend
+    on import order and quietly poison any comparison between two models.
+
+    Args:
+        alpha0_deg: zero-lift angle, degrees. More negative = more camber.
+                    Primarily sets the CT bias.
+        cd0_coeff: Cd0 = cd0_coeff / sqrt(Re). Primarily sets the CP bias.
+        k_cl2: quadratic drag rise with loading.
+        cd_stall: flat-plate drag once separated.
+        sharpness: how abruptly lift breaks at cl_max.
 
     Returns:
-        (cl, cd)
+        callable (alpha_rad, re) -> (cl, cd)
     """
-    f = _re_factor(re)
+    alpha0 = math.radians(alpha0_deg)
 
-    cl_alpha = 2.0 * math.pi * (0.70 + 0.25 * f)   # degraded thin-airfoil slope
-    cl_max = 0.80 + 0.40 * f                        # ~0.8 at Re 1e4, ~1.2 at 2e5
+    def airfoil(alpha_rad, re):
+        f = _re_factor(re)
 
-    cl_lin = cl_alpha * (alpha_rad - ALPHA0)
-    # Soft-max saturation: stays LINEAR until cl_lin approaches cl_max, then
-    # rolls off. A tanh was tried first and is wrong -- tanh(0.74) = 0.63, so
-    # it discards 15% of the lift at a perfectly ordinary 5 degrees of attack,
-    # well below stall. Real sections are linear right up to the break. The
-    # exponent sets the sharpness of that break.
-    cl = cl_lin / (1.0 + abs(cl_lin / cl_max) ** STALL_SHARPNESS) ** (1.0 / STALL_SHARPNESS)
+        cl_alpha = 2.0 * math.pi * (0.70 + 0.25 * f)   # degraded thin-airfoil slope
+        cl_max = 0.80 + 0.40 * f                        # ~0.8 at Re 1e4, ~1.2 at 2e5
 
-    cd = CD0_COEFF / math.sqrt(max(re, 1e3)) + K_CL2 * cl * cl
-    excess = abs(cl_lin) / cl_max - 1.0             # how far past stall
-    if excess > 0:
-        cd += CD_STALL * math.sin(alpha_rad) ** 2 * min(1.0, excess)
+        cl_lin = cl_alpha * (alpha_rad - alpha0)
+        # Soft-max saturation: stays LINEAR until cl_lin approaches cl_max,
+        # then rolls off. A tanh was tried first and is wrong -- tanh(0.74) =
+        # 0.63, so it discards 15% of the lift at an ordinary 5 degrees of
+        # attack, well below stall. Real sections are linear to the break.
+        cl = cl_lin / (1.0 + abs(cl_lin / cl_max) ** sharpness) ** (1.0 / sharpness)
 
-    return cl, cd
+        cd = cd0_coeff / math.sqrt(max(re, 1e3)) + k_cl2 * cl * cl
+        excess = abs(cl_lin) / cl_max - 1.0             # how far past stall
+        if excess > 0:
+            cd += cd_stall * math.sin(alpha_rad) ** 2 * min(1.0, excess)
+
+        return cl, cd
+
+    return airfoil
+
+
+# Uncalibrated defaults, set from physics and the low-Re literature. See
+# calibrate_airfoil.py for the held-out-calibrated version.
+low_re_airfoil = make_airfoil()
 
 
 def tip_loss_factor(r, R, phi, B):
