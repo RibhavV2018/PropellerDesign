@@ -58,6 +58,70 @@ def placeholder_airfoil(alpha_rad, re):
     return 2.0 * math.pi * a, 0.02
 
 
+
+# --- low-Reynolds airfoil model ---------------------------------------------
+# Parameters are set from the physics and the low-Re airfoil literature, NOT
+# fitted to the 119 validation propellers. That matters: tuning them against
+# the same data the solver is later validated on would make the validation
+# circular, which is the exact failure this project exists to fix. If they are
+# ever calibrated, it must be on a held-out subset and said out loud.
+
+ALPHA0 = math.radians(-3.0)   # zero-lift angle. Propeller sections are
+                              # cambered, so they lift at zero incidence.
+CD0_COEFF = 6.2               # Cd0 = CD0_COEFF / sqrt(Re). Laminar skin
+                              # friction scales as Re^-0.5; the coefficient is
+                              # several times the flat-plate value because
+                              # laminar separation bubbles dominate below
+                              # Re ~ 7e4. Gives Cd0 = 0.030 at Re = 43,000,
+                              # the median of this dataset.
+K_CL2 = 0.03                  # pressure drag growth with loading, Cd += k*Cl^2
+CD_STALL = 2.0                # flat-plate drag once separated
+STALL_SHARPNESS = 8.0         # how abruptly lift breaks at cl_max
+
+
+def _re_factor(re):
+    """0 at Re = 1e4, 1 at Re = 2e5. How 'healthy' the boundary layer is.
+
+    Both lift slope and maximum lift degrade as Reynolds number falls: the
+    boundary layer thickens, separation bubbles grow, and the section stops
+    behaving like thin-airfoil theory says it should. Log-scaled because the
+    effect is per decade, not per unit.
+    """
+    return min(1.0, max(0.0, (math.log10(max(re, 1e3)) - 4.0) / 1.3))
+
+
+def low_re_airfoil(alpha_rad, re):
+    """Lift and drag for a generic cambered section at low Reynolds number.
+
+    Deliberately generic. The UIUC database never names the blade section --
+    the word "airfoil" does not appear in it -- so every propeller here gets
+    the same assumed section. That assumption, not this model's fidelity, is
+    what sets the floor on validation accuracy.
+
+    Returns:
+        (cl, cd)
+    """
+    f = _re_factor(re)
+
+    cl_alpha = 2.0 * math.pi * (0.70 + 0.25 * f)   # degraded thin-airfoil slope
+    cl_max = 0.80 + 0.40 * f                        # ~0.8 at Re 1e4, ~1.2 at 2e5
+
+    cl_lin = cl_alpha * (alpha_rad - ALPHA0)
+    # Soft-max saturation: stays LINEAR until cl_lin approaches cl_max, then
+    # rolls off. A tanh was tried first and is wrong -- tanh(0.74) = 0.63, so
+    # it discards 15% of the lift at a perfectly ordinary 5 degrees of attack,
+    # well below stall. Real sections are linear right up to the break. The
+    # exponent sets the sharpness of that break.
+    cl = cl_lin / (1.0 + abs(cl_lin / cl_max) ** STALL_SHARPNESS) ** (1.0 / STALL_SHARPNESS)
+
+    cd = CD0_COEFF / math.sqrt(max(re, 1e3)) + K_CL2 * cl * cl
+    excess = abs(cl_lin) / cl_max - 1.0             # how far past stall
+    if excess > 0:
+        cd += CD_STALL * math.sin(alpha_rad) ** 2 * min(1.0, excess)
+
+    return cl, cd
+
+
 def tip_loss_factor(r, R, phi, B):
     """Prandtl tip-loss factor F, in [0, 1].
 

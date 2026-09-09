@@ -35,7 +35,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from bemt import IN_M, MU, RHO, placeholder_airfoil, solve_propeller
+from bemt import IN_M, MU, RHO, low_re_airfoil, placeholder_airfoil, solve_propeller
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data" / "processed" / "uiuc_hover.csv"
@@ -58,7 +58,7 @@ def reynolds_at_75(row) -> float:
     return RHO * U * (row.c_R_r075 * R) / MU
 
 
-def run(airfoil=placeholder_airfoil, data=DATA) -> pd.DataFrame:
+def run(airfoil=low_re_airfoil, data=DATA) -> pd.DataFrame:
     """Solve every measured operating point. Returns measured vs predicted."""
     df = pd.read_csv(data)
     rows, failures = [], []
