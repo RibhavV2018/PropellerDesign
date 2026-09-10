@@ -107,6 +107,11 @@
         {% for b in candidates %}<option value="{{b}}">{{b}} blades</option>{% endfor %}
       </select>
 
+      <label>Shaft flat, axis to flat (mm)</label>
+      <input id="shaft_flat" type="number" step="0.1" value="2.5"
+             placeholder="blank = round bore">
+      <label>Adapter clamp length (mm)</label>
+      <input id="clamp_len" type="number" step="1" value="10">
       <label>Motor shaft bore (mm)</label>
       <select id="bore">
         <option value="5">5 mm</option>
@@ -131,7 +136,8 @@
 <script>
 const $ = id => document.getElementById(id);
 const body = () => ({ thrust:+$('thrust').value, diameter:+$('diameter').value,
-                      rpm:+$('rpm').value, blades:$('blades').value, bore:+$('bore').value });
+                      rpm:+$('rpm').value, blades:$('blades').value, bore:+$('bore').value,
+                      shaft_flat:$('shaft_flat').value, clamp_len:+$('clamp_len').value });
 const n = (x,d=1) => x.toFixed(d);
 
 // The parameters that produced what is currently on screen. CAD generation uses
@@ -180,7 +186,7 @@ $('f').addEventListener('submit', runDesign);
 // Any edit invalidates what is on screen: dim it, block CAD generation, and say
 // why. Without this the stat cards can describe one propeller while the preview
 // below shows another.
-for (const id of ['thrust','diameter','rpm','blades','bore']) {
+for (const id of ['thrust','diameter','rpm','blades','bore','shaft_flat','clamp_len']) {
   $(id).addEventListener('input', markStale);
   $(id).addEventListener('change', markStale);
 }
@@ -207,7 +213,8 @@ $('cadbtn').addEventListener('click', async () => {
                  + 'Lofting sections and cutting the bore… (~3 s)</div>';
   try {
     const c = await post('/api/cad', shown);
-    slot.innerHTML = `<h2>Generated solid</h2>
+    const mount = (c.issues || []).map(w => `<div class="warn">${w}</div>`).join('');
+    slot.innerHTML = `<h2>Generated solid</h2>${mount}
       <img src="${c.png}" alt="propeller views">
       <p class="muted" style="font-size:13px;margin:10px 0 12px">
         ${n(c.volume_cm3)} cm³ · ~${n(c.mass_pla_g,0)} g solid PLA ·
