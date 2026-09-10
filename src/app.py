@@ -133,21 +133,9 @@ def api_cad():
     except (KeyError, ValueError) as exc:
         return jsonify({"error": str(exc)}), 400
 
-    j = request.json
-    flat = j.get("shaft_flat")
-    flat = float(flat) if flat not in (None, "", "0") else None
-    clamp = float(j.get("clamp_len", 10.0))
-
     r = design(get_model(), thrust_gf * 9.80665 / 1000.0, diameter, rpm, blades)
-    issues = []
     prop = build_propeller(r["c_R"], r["beta_deg"], diameter, r["blade_count"],
-                           bore_mm=bore, shaft_flat_mm=flat, clamp_len_mm=clamp,
-                           report=issues)
-    # A round bore looks perfectly fine on screen and will loosen in service,
-    # so its absence is surfaced rather than left to the user to notice.
-    if flat is None:
-        issues.insert(0, "Round bore: holds by friction alone, and PLA creeps, so it "
-                         "will work loose. Set the shaft flat to drive on geometry.")
+                           bore_mm=bore)
 
     OUT.mkdir(parents=True, exist_ok=True)
     stem = f"prop_{diameter:g}in_{thrust_gf:g}gf_{r['blade_count']}b_{uuid.uuid4().hex[:6]}"
@@ -158,7 +146,6 @@ def api_cad():
     solid = prop.val()
 
     return jsonify({
-        "issues": issues,
         "stem": stem,
         "volume_cm3": solid.Volume() / 1000.0,
         "mass_pla_g": solid.Volume() / 1000.0 * 1.24,
