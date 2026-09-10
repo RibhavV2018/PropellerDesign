@@ -115,6 +115,51 @@ def station_wire(r_mm, chord_mm, twist_deg, thickness):
     return cq.Wire.makePolygon(pts, close=True)
 
 
+def bore_profile(bore_mm, flat_mm=None, n=72):
+    """Bore cross-section: a circle, optionally with a D-flat.
+
+    A plain round bore transmits torque only by friction, and in PLA that is
+    not a mounting scheme. At the 10 inch design point the shaft carries about
+    81 mN*m, which a 6 mm round bore would need roughly 90 N of radial grip to
+    hold -- far more than a printed press fit provides, and PLA creeps under
+    sustained load so whatever grip exists fades within hours.
+
+    A D-flat matching the motor shaft transmits torque through GEOMETRY
+    instead. It cannot creep loose, and it fails safe: if it ever does slip it
+    slips one flat and re-engages rather than wallowing the bore round.
+
+    Args:
+        flat_mm: distance from the shaft axis to the flat. Measure the motor
+            shaft across the flat and halve it. None gives a plain round bore.
+
+    Returns:
+        list of (x, y) points, or None for a plain circle.
+    """
+    r = bore_mm / 2.0
+    if flat_mm is None or flat_mm >= r or flat_mm <= 0:
+        return None
+    th0 = math.acos(min(1.0, flat_mm / r))
+    angs = np.linspace(th0, 2 * math.pi - th0, n)
+    return [(float(r * math.cos(a)), float(r * math.sin(a))) for a in angs]
+
+
+def mount_report(bore_mm, seat_dia_mm, clamp_len_mm, hub_dia_mm):
+    """Flag mounting geometry that will not survive assembly or flight."""
+    issues = []
+    seat_width = (seat_dia_mm - bore_mm) / 2.0
+    if seat_width < 2.0:
+        issues.append(f"washer seat only {seat_width:.1f} mm wide -- the nut will "
+                      f"dig into it; widen seat_dia_mm")
+    if clamp_len_mm < 6.0:
+        issues.append(f"clamp collar only {clamp_len_mm:.1f} mm long -- too short for "
+                      f"most prop adapters to grip; raise clamp_len_mm")
+    wall = (hub_dia_mm - seat_dia_mm) / 2.0
+    if wall < 3.0:
+        issues.append(f"only {wall:.1f} mm of hub wall outside the seat -- the hub may "
+                      f"split; reduce seat_dia_mm or widen the hub")
+    return issues
+
+
 def build_blade(c_R, beta_deg, diameter_in):
     """Loft the station sections into a single blade solid."""
     R_mm = diameter_in * IN_MM / 2.0
@@ -128,8 +173,10 @@ def build_blade(c_R, beta_deg, diameter_in):
 
 
 def build_propeller(c_R, beta_deg, diameter_in, blade_count,
-                    bore_mm=6.0, hub_dia_mm=None, hub_thick_mm=None):
-    """Full propeller: blades patterned around a bored hub.
+                    bore_mm=6.0, hub_dia_mm=None, hub_thick_mm=None,
+                    shaft_flat_mm=None, clamp_len_mm=10.0, seat_dia_mm=None,
+                    report=None):
+    """Full propeller: blades patterned around a hub that can actually be mounted.
 
     Args:
         bore_mm: motor shaft diameter. 5, 6 and 8 mm cover most brushless
@@ -138,6 +185,24 @@ def build_propeller(c_R, beta_deg, diameter_in, blade_count,
             station so the blade root is embedded in solid material rather
             than meeting it at a seam.
         hub_thick_mm: hub height along the shaft.
+        shaft_flat_mm: distance from shaft axis to the flat, for a D-bore.
+            None gives a round bore, which relies on friction alone -- see
+            bore_profile for why that does not hold in PLA.
+        clamp_len_mm: length of the collar the prop adapter actually grips.
+            The hub has to be tall to contain a twisted root section -- 27 mm
+            on the 10 inch design -- but standard adapters clamp only 10-15 mm,
+            so a bare hub that thick physically will not fit one. Both faces
+            are counterbored to leave a collar of this length.
+        seat_dia_mm: diameter of those counterbores. Their floors are the flat,
+            parallel annular faces the washer and adapter shoulder bear on.
+            Face clamping at ~8 mm radius needs only about 34 N to carry the
+            81 mN*m this design produces, which a hand-tight nut supplies
+            several times over -- but only if the seat is genuinely flat, which
+            a bare cylinder does not guarantee once blade roots merge into it.
+        report: optional list; mounting warnings are appended to it.
+
+    MOUNTING DIRECTION: fit the propeller so shaft torque TIGHTENS the nut.
+    Mounted the other way it unwinds itself in flight.
     """
     R_mm = diameter_in * IN_MM / 2.0
     root_r = STATIONS[0] * R_mm
@@ -170,9 +235,28 @@ def build_propeller(c_R, beta_deg, diameter_in, blade_count,
                                i * 360.0 / blade_count)
         prop = prop.union(cq.Workplane(obj=rotated))
 
-    # bore last, so no blade union can fill it back in
-    prop = prop.cut(cq.Workplane("XY").circle(bore_mm / 2.0)
-                    .extrude(hub_thick_mm, both=True))
+    # Counterbore both faces to leave a short clamp collar, before the bore is
+    # cut. Capped at 75% of the hub so the recess cannot eat into blade roots.
+    if seat_dia_mm is None:
+        seat_dia_mm = max(2.2 * bore_mm, 14.0)
+    seat_dia_mm = min(seat_dia_mm, 0.75 * hub_dia_mm)
+    collar = min(clamp_len_mm, hub_thick_mm)
+
+    if collar < hub_thick_mm:
+        d = (hub_thick_mm - collar) / 2.0
+        for z, h in ((hub_thick_mm / 2.0 - d, d + 1.0),
+                     (-hub_thick_mm / 2.0 - 1.0, d + 1.0)):
+            prop = prop.cut(cq.Workplane("XY").workplane(offset=z)
+                            .circle(seat_dia_mm / 2.0).extrude(h))
+
+    if report is not None:
+        report.extend(mount_report(bore_mm, seat_dia_mm, collar, hub_dia_mm))
+
+    # Bore last, so no blade union or counterbore can fill it back in.
+    pts = bore_profile(bore_mm, shaft_flat_mm)
+    cutter = (cq.Workplane("XY").polyline(pts).close() if pts
+              else cq.Workplane("XY").circle(bore_mm / 2.0))
+    prop = prop.cut(cutter.extrude(hub_thick_mm, both=True))
     return prop
 
 
@@ -280,6 +364,14 @@ def main() -> None:
     ap.add_argument("--rpm", type=float, required=True, help="target shaft speed")
     ap.add_argument("--blades", type=int, default=None, help="fix blade count (default: auto 2-6)")
     ap.add_argument("--bore", type=float, default=6.0, help="motor shaft diameter, mm (default 6)")
+    ap.add_argument("--shaft-flat", type=float, default=None,
+                    help="distance from shaft axis to its flat, mm -- gives a D-bore "
+                         "that drives on geometry instead of friction (measure the "
+                         "shaft across the flat and halve it)")
+    ap.add_argument("--clamp-len", type=float, default=10.0,
+                    help="length of collar the prop adapter grips, mm (default 10)")
+    ap.add_argument("--seat-dia", type=float, default=None,
+                    help="counterbore diameter for the washer seats, mm")
     ap.add_argument("--hub-dia", type=float, default=None, help="hub outer diameter, mm")
     ap.add_argument("--hub-thick", type=float, default=None, help="hub height, mm")
     ap.add_argument("--name", default=None, help="output filename stem")
@@ -298,10 +390,21 @@ def main() -> None:
           f"{r['thrust_N'] * GF_PER_N:.0f} gf ({r['thrust_error_pct']:+.1f}%), "
           f"{r['shaft_power_W']:.1f} W, {r['thrust_per_watt_gf_W']:.2f} gf/W")
 
+    issues = []
     prop = build_propeller(r["c_R"], r["beta_deg"], a.diameter, r["blade_count"],
                            bore_mm=a.bore, hub_dia_mm=a.hub_dia,
-                           hub_thick_mm=a.hub_thick)
+                           hub_thick_mm=a.hub_thick, shaft_flat_mm=a.shaft_flat,
+                           clamp_len_mm=a.clamp_len, seat_dia_mm=a.seat_dia,
+                           report=issues)
     solid = prop.val()
+
+    drive = f"D-flat at {a.shaft_flat} mm" if a.shaft_flat else "ROUND (friction only)"
+    print(f"mount   : {a.bore} mm bore, {drive}, {a.clamp_len:g} mm clamp collar")
+    if not a.shaft_flat:
+        print("          note: a round bore holds by friction alone. PLA creeps, so")
+        print("          it will loosen -- pass --shaft-flat to drive on geometry.")
+    for msg in issues:
+        print(f"          WARNING: {msg}")
     bb = solid.BoundingBox()
     print(f"solid   : valid={solid.isValid()}  volume={solid.Volume() / 1000:.1f} cm^3")
     print(f"          {bb.xlen:.1f} x {bb.ylen:.1f} x {bb.zlen:.1f} mm, bore {a.bore} mm")
