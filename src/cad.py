@@ -150,17 +150,25 @@ def build_propeller(c_R, beta_deg, diameter_in, blade_count,
     if hub_dia_mm is None:
         hub_dia_mm = 2.0 * root_r * 1.15
 
-    # Hub thickness: enough to contain the ROOT SECTION, computed from its
-    # actual axial extent rather than guessed from chord. A twisted section
-    # projects chord*sin(twist) along the shaft, plus its own thickness.
-    if hub_thick_mm is None:
-        c0, b0 = c_R[0] * R_mm, math.radians(beta_deg[0])
-        axial = abs(c0 * math.sin(b0)) + THICKNESS_ROOT * c0 * abs(math.cos(b0))
-        hub_thick_mm = max(6.0, axial * 1.1)
-
     blade = build_blade(c_R, beta_deg, diameter_in)
 
-    hub = (cq.Workplane("XY")
+    # Hub height and position: enough to contain the part of the blade that
+    # sits inside the hub footprint, measured from the geometry rather than
+    # estimated from chord and twist.
+    #
+    # It has to be CENTRED on that material too, not on z = 0. Sections are
+    # placed about their quarter chord, so a twisted root projects about a
+    # quarter of its chord below z = 0 and three quarters above. A hub
+    # extruded symmetrically about z = 0 left the blade root standing up to
+    # 4 mm proud of the top face -- which is the face that seats on the motor.
+    footprint = cq.Solid.makeCylinder(hub_dia_mm / 2.0, 4.0 * R_mm,
+                                      cq.Vector(0, 0, -2.0 * R_mm))
+    box = blade.intersect(footprint).BoundingBox()
+    z_mid = (box.zmin + box.zmax) / 2.0
+    if hub_thick_mm is None:
+        hub_thick_mm = max(6.0, (box.zmax - box.zmin) * 1.1)
+
+    hub = (cq.Workplane("XY", origin=(0, 0, z_mid))
            .circle(hub_dia_mm / 2.0)
            .extrude(hub_thick_mm / 2.0, both=True))
 
@@ -171,7 +179,7 @@ def build_propeller(c_R, beta_deg, diameter_in, blade_count,
         prop = prop.union(cq.Workplane(obj=rotated))
 
     # bore last, so no blade union can fill it back in
-    prop = prop.cut(cq.Workplane("XY").circle(bore_mm / 2.0)
+    prop = prop.cut(cq.Workplane("XY", origin=(0, 0, z_mid)).circle(bore_mm / 2.0)
                     .extrude(hub_thick_mm, both=True))
     return prop
 
