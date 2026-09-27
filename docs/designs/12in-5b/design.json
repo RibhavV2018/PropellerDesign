@@ -1,0 +1,186 @@
+{
+  "name": "12in-5b",
+  "blurb": "Lightly loaded, so auto-select reaches for five blades. Outside the validated 6-11 in range.",
+  "inputs": {
+    "diameter_in": 12,
+    "rpm": 5000,
+    "thrust_target_gf": 500,
+    "blades_requested": 5,
+    "bore_mm": 6.0
+  },
+  "blade_count": 5,
+  "blade_count_forced": true,
+  "auto_blade_count": 5,
+  "thrust_gf": 501.8875149378098,
+  "thrust_error_pct": 0.37750298756196177,
+  "meets_thrust": true,
+  "shaft_power_W": 47.567737294095366,
+  "gf_per_W": 10.55100670092436,
+  "CT": 0.06703376623044086,
+  "CP": 0.025506174669325036,
+  "volume_cm3": 26.29846186777355,
+  "mass_pla_g": 32.610092716039205,
+  "triangles": 18548,
+  "watertight": true,
+  "geometry": [
+    {
+      "r_R": 0.15,
+      "c_R": 0.07818152416458699,
+      "chord_in": 0.4690891449875219,
+      "twist_deg": 40.0160750250684
+    },
+    {
+      "r_R": 0.2,
+      "c_R": 0.0807309852194405,
+      "chord_in": 0.484385911316643,
+      "twist_deg": 32.18376235659485
+    },
+    {
+      "r_R": 0.25,
+      "c_R": 0.08256246940411768,
+      "chord_in": 0.4953748164247061,
+      "twist_deg": 26.704247509780114
+    },
+    {
+      "r_R": 0.3,
+      "c_R": 0.0828034146794672,
+      "chord_in": 0.4968204880768032,
+      "twist_deg": 22.721834775905585
+    },
+    {
+      "r_R": 0.35,
+      "c_R": 0.08223388634953022,
+      "chord_in": 0.4934033180971813,
+      "twist_deg": 19.721776075789226
+    },
+    {
+      "r_R": 0.4,
+      "c_R": 0.0813146724414413,
+      "chord_in": 0.48788803464864783,
+      "twist_deg": 17.39002893896562
+    },
+    {
+      "r_R": 0.45,
+      "c_R": 0.07996993209656819,
+      "chord_in": 0.47981959257940915,
+      "twist_deg": 15.528967579473377
+    },
+    {
+      "r_R": 0.5,
+      "c_R": 0.07790870413503767,
+      "chord_in": 0.467452224810226,
+      "twist_deg": 14.009867545033611
+    },
+    {
+      "r_R": 0.55,
+      "c_R": 0.07525648807551955,
+      "chord_in": 0.45153892845311727,
+      "twist_deg": 12.74605857802118
+    },
+    {
+      "r_R": 0.6,
+      "c_R": 0.07200923643466436,
+      "chord_in": 0.4320554186079862,
+      "twist_deg": 11.677393257952083
+    },
+    {
+      "r_R": 0.65,
+      "c_R": 0.06813368321793105,
+      "chord_in": 0.40880209930758626,
+      "twist_deg": 10.760986598069678
+    },
+    {
+      "r_R": 0.7,
+      "c_R": 0.06352250637094688,
+      "chord_in": 0.3811350382256813,
+      "twist_deg": 9.965519942694566
+    },
+    {
+      "r_R": 0.75,
+      "c_R": 0.05808633200687126,
+      "chord_in": 0.3485179920412276,
+      "twist_deg": 9.267631065574246
+    },
+    {
+      "r_R": 0.8,
+      "c_R": 0.05173558449621436,
+      "chord_in": 0.3104135069772862,
+      "twist_deg": 8.649562048505734
+    },
+    {
+      "r_R": 0.85,
+      "c_R": 0.04437053187570432,
+      "chord_in": 0.2662231912542259,
+      "twist_deg": 8.097587287519364
+    },
+    {
+      "r_R": 0.9,
+      "c_R": 0.03569950548597195,
+      "chord_in": 0.2141970329158317,
+      "twist_deg": 7.600938341825025
+    },
+    {
+      "r_R": 0.95,
+      "c_R": 0.024626641293797186,
+      "chord_in": 0.14775984776278311,
+      "twist_deg": 7.151053026200762
+    },
+    {
+      "r_R": 1.0,
+      "c_R": 0.018658731493993046,
+      "chord_in": 0.11195238896395827,
+      "twist_deg": 6.741040896429978
+    }
+  ],
+  "candidates": [
+    {
+      "blades": 2,
+      "thrust_gf": 617.4471133301427,
+      "error_pct": 23.48942266602854,
+      "shaft_power_W": 54.85420022948816,
+      "gf_per_W": 11.256150135212792,
+      "meets": false
+    },
+    {
+      "blades": 3,
+      "thrust_gf": 686.7823361726804,
+      "error_pct": 37.35646723453607,
+      "shaft_power_W": 64.63618130756076,
+      "gf_per_W": 10.62535444203825,
+      "meets": false
+    },
+    {
+      "blades": 4,
+      "thrust_gf": 655.421807780952,
+      "error_pct": 31.084361556190387,
+      "shaft_power_W": 62.90463398544389,
+      "gf_per_W": 10.419292924152717,
+      "meets": false
+    },
+    {
+      "blades": 5,
+      "thrust_gf": 501.8875149378098,
+      "error_pct": 0.37750298756196177,
+      "shaft_power_W": 47.567737294095366,
+      "gf_per_W": 10.55100670092436,
+      "meets": true
+    },
+    {
+      "blades": 6,
+      "thrust_gf": 155.831004671582,
+      "error_pct": -68.83379906568359,
+      "shaft_power_W": 15.422197120341496,
+      "gf_per_W": 10.104332311123477,
+      "meets": false
+    }
+  ],
+  "warnings": [
+    "Phase 3 validated efficiency to within ~15% of the best real propeller only for 6-11 inch diameters. Outside that the model extrapolates below its training Reynolds range and did markedly worse."
+  ],
+  "files": {
+    "stl": "12in-5b.stl",
+    "step": "12in-5b.step",
+    "png": "12in-5b.png",
+    "glb": "12in-5b.glb"
+  }
+}

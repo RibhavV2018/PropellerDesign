@@ -16,3 +16,6 @@ cadquery>=2.4
 
 # Phase 6 — web frontend
 flask>=3.0
+
+# Static showcase export (src/export_showcase.py) -- STL -> GLB
+trimesh>=4.0

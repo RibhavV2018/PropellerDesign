@@ -1,0 +1,186 @@
+{
+  "name": "8in-oversized",
+  "blurb": "A requirement no blade count fits: the best candidate overshoots thrust by about 23%, and the tool says so.",
+  "inputs": {
+    "diameter_in": 8,
+    "rpm": 10000,
+    "thrust_target_gf": 400,
+    "blades_requested": null,
+    "bore_mm": 6.0
+  },
+  "blade_count": 2,
+  "blade_count_forced": false,
+  "auto_blade_count": 2,
+  "thrust_gf": 491.5846303847969,
+  "thrust_error_pct": 22.89615759619923,
+  "meets_thrust": false,
+  "shaft_power_W": 59.08714681287403,
+  "gf_per_W": 8.319654220936075,
+  "CT": 0.08309799959551842,
+  "CP": 0.030074067057752656,
+  "volume_cm3": 22.776188449560532,
+  "mass_pla_g": 28.24247367745506,
+  "triangles": 11384,
+  "watertight": true,
+  "geometry": [
+    {
+      "r_R": 0.15,
+      "c_R": 0.21845855274439466,
+      "chord_in": 0.8738342109775786,
+      "twist_deg": 38.88688829332678
+    },
+    {
+      "r_R": 0.2,
+      "c_R": 0.22668742002805048,
+      "chord_in": 0.9067496801122019,
+      "twist_deg": 31.1335805537274
+    },
+    {
+      "r_R": 0.25,
+      "c_R": 0.23797647054796006,
+      "chord_in": 0.9519058821918402,
+      "twist_deg": 25.75778040512043
+    },
+    {
+      "r_R": 0.3,
+      "c_R": 0.24482168802764537,
+      "chord_in": 0.9792867521105815,
+      "twist_deg": 21.87430406698919
+    },
+    {
+      "r_R": 0.35,
+      "c_R": 0.24783977984915956,
+      "chord_in": 0.9913591193966382,
+      "twist_deg": 18.960640118092343
+    },
+    {
+      "r_R": 0.4,
+      "c_R": 0.24864822465578698,
+      "chord_in": 0.9945928986231479,
+      "twist_deg": 16.702193573719427
+    },
+    {
+      "r_R": 0.45,
+      "c_R": 0.24753204439477372,
+      "chord_in": 0.9901281775790949,
+      "twist_deg": 14.902868134318135
+    },
+    {
+      "r_R": 0.5,
+      "c_R": 0.2439739041094537,
+      "chord_in": 0.9758956164378148,
+      "twist_deg": 13.435833271050221
+    },
+    {
+      "r_R": 0.55,
+      "c_R": 0.2381315791583455,
+      "chord_in": 0.952526316633382,
+      "twist_deg": 12.216148796109803
+    },
+    {
+      "r_R": 0.6,
+      "c_R": 0.23003034205498385,
+      "chord_in": 0.9201213682199354,
+      "twist_deg": 11.185110656409304
+    },
+    {
+      "r_R": 0.65,
+      "c_R": 0.2197531502092332,
+      "chord_in": 0.8790126008369328,
+      "twist_deg": 10.300998568955327
+    },
+    {
+      "r_R": 0.7,
+      "c_R": 0.2071524448867555,
+      "chord_in": 0.828609779547022,
+      "twist_deg": 9.533423312374744
+    },
+    {
+      "r_R": 0.75,
+      "c_R": 0.1920661852991599,
+      "chord_in": 0.7682647411966396,
+      "twist_deg": 8.85976350799292
+    },
+    {
+      "r_R": 0.8,
+      "c_R": 0.17426282470291915,
+      "chord_in": 0.6970512988116766,
+      "twist_deg": 8.262853941144783
+    },
+    {
+      "r_R": 0.85,
+      "c_R": 0.15340133763375097,
+      "chord_in": 0.6136053505350039,
+      "twist_deg": 7.729446055746305
+    },
+    {
+      "r_R": 0.9,
+      "c_R": 0.12862988532763073,
+      "chord_in": 0.5145195413105229,
+      "twist_deg": 7.24915810648227
+    },
+    {
+      "r_R": 0.95,
+      "c_R": 0.0936118734227274,
+      "chord_in": 0.3744474936909096,
+      "twist_deg": 6.8137437221492485
+    },
+    {
+      "r_R": 1.0,
+      "c_R": 0.0557956485585495,
+      "chord_in": 0.223182594234198,
+      "twist_deg": 6.41657233134099
+    }
+  ],
+  "candidates": [
+    {
+      "blades": 2,
+      "thrust_gf": 491.5846303847969,
+      "error_pct": 22.89615759619923,
+      "shaft_power_W": 59.08714681287403,
+      "gf_per_W": 8.319654220936075,
+      "meets": false
+    },
+    {
+      "blades": 3,
+      "thrust_gf": 546.6100606967857,
+      "error_pct": 36.65251517419639,
+      "shaft_power_W": 69.66084226295871,
+      "gf_per_W": 7.846733443638519,
+      "meets": false
+    },
+    {
+      "blades": 4,
+      "thrust_gf": 520.6485435248863,
+      "error_pct": 30.162135881221563,
+      "shaft_power_W": 67.75874237403856,
+      "gf_per_W": 7.683857835655025,
+      "meets": false
+    },
+    {
+      "blades": 5,
+      "thrust_gf": 396.7141328116159,
+      "error_pct": -0.8214667970960265,
+      "shaft_power_W": 51.142048351412676,
+      "gf_per_W": 7.757102924107999,
+      "meets": false
+    },
+    {
+      "blades": 6,
+      "thrust_gf": 121.93492408122233,
+      "error_pct": -69.51626897969443,
+      "shaft_power_W": 16.39174604727533,
+      "gf_per_W": 7.43880021869242,
+      "meets": false
+    }
+  ],
+  "warnings": [
+    "The best available candidate overshoots by 23%. It meets the thrust requirement but is oversized -- heavier and drawing more current than the mission needs. A smaller diameter or lower rpm would fit the requirement more closely."
+  ],
+  "files": {
+    "stl": "8in-oversized.stl",
+    "step": "8in-oversized.step",
+    "png": "8in-oversized.png",
+    "glb": "8in-oversized.glb"
+  }
+}

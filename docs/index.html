@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Propeller Designer</title>
+<meta name="description" content="Machine learning plus blade-element physics that turns a hover thrust requirement into a printable propeller. Example designs, validation, and limitations.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Cg fill=%22%232a78d6%22%3E%3Cellipse cx=%2216%22 cy=%228%22 rx=%224%22 ry=%228%22/%3E%3Cellipse cx=%2216%22 cy=%2224%22 rx=%224%22 ry=%228%22/%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%224%22/%3E%3C/g%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/site.css">
+<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@4.0.0/dist/model-viewer.min.js"></script>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <p class="eyebrow">ML + physics + CAD for small electric UAS</p>
+      <h1>From a thrust requirement to a printable propeller</h1>
+      <p class="lede">
+        Give it a target thrust, a diameter and a motor speed. A model trained on
+        simulated propellers proposes blade geometry, a blade-element momentum solver
+        checks what that blade actually does, and CadQuery turns it into STEP and STL
+        files. Every performance number on this page is <strong>simulated</strong>, not
+        measured.
+      </p>
+      <div class="links">
+        <a class="btn primary" href="#gallery">See example designs</a>
+        <!-- Set these two hrefs. Links with an empty href are hidden by site.js. -->
+        <a class="btn" id="link-github" href="https://github.com/RibhavV2018/PropellerDesign">Code on GitHub</a>
+        <a class="btn" id="link-video" href="">Watch the demo</a>
+      </div>
+    </div>
+    <figure class="hero-model">
+      <model-viewer src="designs/8in-3b/8in-3b.glb" alt="3D model of an 8 inch three-blade propeller designed by the tool"
+        camera-controls auto-rotate rotation-per-second="20deg" camera-orbit="30deg 65deg auto"
+        shadow-intensity="0.6" exposure="1.1" interaction-prompt="none"></model-viewer>
+      <figcaption>8 in, 3 blades, designed for 600 gf at 6,000 rpm. Drag to rotate.</figcaption>
+    </figure>
+  </div>
+</header>
+
+<main>
+
+<section id="how" class="wrap">
+  <h2>How it works</h2>
+  <p class="section-lede">Four stages. The third is what makes it a design tool rather than a regression: the model proposes, the physics decides.</p>
+  <ol class="pipeline">
+    <li>
+      <span class="step-n">1</span>
+      <h3>Requirement</h3>
+      <p>Thrust, diameter and rpm (from motor Kv &times; battery voltage), plus an optional blade count. These become two dimensionless inputs: a thrust coefficient and a Reynolds number.</p>
+    </li>
+    <li>
+      <span class="step-n">2</span>
+      <h3>Model</h3>
+      <p>A linear regression predicts chord and twist at 18 radial stations for each blade count from 2 to 6. It was trained on the efficient frontier (29,639 blades) of 200,000 synthetic propellers.</p>
+    </li>
+    <li>
+      <span class="step-n">3</span>
+      <h3>BEMT check</h3>
+      <p>Each candidate is simulated with blade-element momentum theory. The most efficient one landing between 0% and +20% of the thrust target wins.</p>
+    </li>
+    <li>
+      <span class="step-n">4</span>
+      <h3>CAD</h3>
+      <p>CadQuery lofts cambered NACA sections (14% thick at the root, 7% at the tip) along the blade, patterns the blades around a hub, and exports STEP and STL.</p>
+    </li>
+  </ol>
+</section>
+
+<section id="gallery" class="wrap">
+  <h2>Example designs</h2>
+  <p class="section-lede">
+    Six requirements that span the range, generated ahead of time by
+    <code>src/export_showcase.py</code> with the same code the local web app runs.
+    Two sit outside the validated diameter range and one misses the thrust band,
+    and the tool flags all three.
+  </p>
+  <div id="cards" class="cards" aria-live="polite">
+    <p class="muted">Loading designs&hellip;</p>
+  </div>
+</section>
+
+<section id="validation" class="wrap">
+  <h2>Validation</h2>
+
+  <h3>1. The physics solver against 119 real propellers</h3>
+  <p>
+    Before trusting simulated training data, the BEMT solver was run on all 119 propellers
+    in the UIUC database (2,121 operating points) and compared against wind-tunnel measurements.
+  </p>
+  <div class="stats">
+    <div class="stat"><span class="stat-v">&minus;12.6%</span><span class="stat-l">median thrust (C<sub>T</sub>) error. The solver under-predicts.</span></div>
+    <div class="stat"><span class="stat-v">&minus;11.5%</span><span class="stat-l">median power (C<sub>P</sub>) error</span></div>
+    <div class="stat"><span class="stat-v">17.1%</span><span class="stat-l">spread <em>between</em> propellers (sd of per-prop median C<sub>T</sub> error)</span></div>
+    <div class="stat"><span class="stat-v">4.3%</span><span class="stat-l">spread <em>within</em> one propeller across its rpm sweep</span></div>
+  </div>
+  <p>
+    The small within-propeller spread means the solver tracks each blade consistently. The large
+    between-propeller spread comes mostly from unknown airfoil sections: the solver assumes one
+    airfoil for every blade, and the database doesn't say which each one uses. That is a floor
+    to report, not a bug to tune away. Because the bias runs low, a real blade built to a design
+    that simulates exactly on target would likely make <em>more</em> thrust than predicted.
+  </p>
+
+  <h3>2. The model</h3>
+  <p>
+    The deployed model is a <strong>plain linear regression</strong>. XGBoost was benchmarked
+    against it on the same data and tied, so the simpler, smoother model shipped. Every one of the
+    119 real propellers is held out from training, because training uses synthetic blades only.
+  </p>
+
+  <h3>3. Closed-loop test: does the designed blade do the job?</h3>
+  <p>
+    For 15 real operating points, the tool designed a propeller for the same thrust, diameter
+    and rpm. That design was compared with the best real propeller meeting the same requirement.
+    <strong>Both sides are simulated</strong> in the same solver, so its bias cancels and the
+    comparison measures design quality. It is not a test against measured data.
+  </p>
+  <div class="callout">
+    <p><strong>Result in the 6&ndash;11 in range: 8 of 10 cases</strong> were no more than 15% less
+    efficient than the best real reference. The two failures are both 11 in cases,
+    <code>ma_11x4</code> and <code>grcp_11x4</code>. For those, auto-select picked
+    <strong>5 blades</strong> where the real propellers use 2, and the designs came out 38&ndash;42% worse.
+    Outside 6&ndash;11 in, the model extrapolates below its training Reynolds range and does
+    markedly worse, which is why the tool warns there.</p>
+  </div>
+  <p class="table-note">Phase 3 closed-loop results (<a href="data/phase3_validation.csv">CSV</a>). &ldquo;vs best real&rdquo; compares thrust per shaft watt; positive means the design beats the reference. Pass means no more than 15% worse.</p>
+  <div class="table-wrap">
+    <table id="phase3">
+      <thead><tr>
+        <th scope="col">Case</th><th scope="col" class="num">Dia. (in)</th><th scope="col" class="num">Target (gf)</th>
+        <th scope="col" class="num">Thrust err.</th><th scope="col" class="num">Blades (tool / real)</th>
+        <th scope="col" class="num">Design gf/W</th><th scope="col" class="num">Best real gf/W</th>
+        <th scope="col" class="num">vs best real</th><th scope="col">Verdict</th>
+      </tr></thead>
+      <tbody><tr><td colspan="9" class="muted">Loading&hellip;</td></tr></tbody>
+    </table>
+  </div>
+  <p class="muted small">
+    Large positive values like +77% (<code>mi_5x3.5</code>) don't mean the tool beats real
+    propellers by that much. They sit outside the validated range, and they mostly show that the
+    nearest real reference was built for a different operating point.
+  </p>
+</section>
+
+<section id="limits" class="wrap">
+  <h2>Limitations</h2>
+  <ul class="limits">
+    <li><strong>Validated for 6&ndash;11 in only.</strong> Outside it, the model extrapolates below its training Reynolds range.</li>
+    <li><strong>Blade-count selection is weak for lightly loaded rotors.</strong> It picks 5 blades where real designs use 2, as in the two Phase 3 failures. The 12 in and 15 in examples above show the same behaviour.</li>
+    <li><strong>All performance is simulated.</strong> The solver under-predicts thrust by a median 12.6%, with 17% scatter between propellers. No designed blade has been built and tested yet.</li>
+    <li><strong>Shaft power, not battery power.</strong> Motor and ESC losses aren't modelled, and rpm is taken as given rather than solved from a motor model.</li>
+    <li><strong>One design point.</strong> Efficiency is judged at hover only, not across a throttle sweep or in forward flight.</li>
+    <li><strong>Plain round bore.</strong> The hub has a simple 6 mm round hole. A D-flat mount and clamp collar were tried and reverted, so a printed part needs its own way of fixing to the shaft.</li>
+    <li><strong>Unverified structure.</strong> There's no stress or flutter analysis. Don't spin a printed prop near people.</li>
+  </ul>
+</section>
+
+<section id="about" class="wrap">
+  <h2>About</h2>
+  <p>
+    This rebuilds my high-school AIAA paper, <em>Using Machine Learning to Expedite Production of
+    Aircraft Propellers</em>. The original trained a model on labels that already contained a
+    fixed efficiency assumption, so it mostly relearned that assumption. This version generates
+    its training data with a physics solver that was first validated against wind-tunnel data,
+    and it retargets the problem from piston aircraft to small electric hover rotors (2&ndash;30 in).
+  </p>
+  <p>
+    The full tool is a local Flask app. It isn't hosted here because its CAD stack needs about
+    2 GB of dependencies and about 760 MB of memory per design. The examples above were generated
+    offline with the same code. Measured data comes from the
+    <a href="https://m-selig.ae.illinois.edu/props/propDB.html">UIUC Propeller Data Site</a>.
+  </p>
+</section>
+
+</main>
+
+<footer class="wrap footer">
+  <p class="muted small">Built by Ribhav &middot; Performance figures are simulated with BEMT unless stated otherwise.</p>
+</footer>
+
+<template id="card-tpl">
+  <article class="card">
+    <div class="viewer">
+      <model-viewer camera-controls loading="lazy" camera-orbit="30deg 65deg auto"
+        shadow-intensity="0.5" exposure="1.1" interaction-prompt="none"></model-viewer>
+    </div>
+    <div class="card-body">
+      <header class="card-head">
+        <h3 class="card-title"></h3>
+        <p class="card-req muted"></p>
+      </header>
+      <p class="card-blurb"></p>
+      <div class="warnings"></div>
+      <dl class="metrics"></dl>
+      <p class="blade-note small muted"></p>
+      <div class="charts">
+        <figure class="chart" data-key="chord_in" data-label="Chord" data-unit="in"></figure>
+        <figure class="chart" data-key="twist_deg" data-label="Twist" data-unit="&deg;"></figure>
+      </div>
+      <details class="cands">
+        <summary>All blade counts the tool tried</summary>
+        <div class="table-wrap"><table>
+          <thead><tr><th scope="col">Blades</th><th scope="col" class="num">Thrust (gf)</th><th scope="col" class="num">vs target</th><th scope="col" class="num">gf/W</th><th scope="col">In band</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </details>
+      <div class="downloads"></div>
+    </div>
+  </article>
+</template>
+
+<script src="assets/site.js"></script>
+</body>
+</html>
